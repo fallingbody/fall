@@ -101,8 +101,10 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: isDark ? Colors.black : Colors.white,
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
@@ -112,27 +114,28 @@ class _LoginScreenState extends State<LoginScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 // Logo or App Name
-                const Text(
+                Text(
                   'fall',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 48,
                     fontWeight: FontWeight.w900,
                     letterSpacing: -2.0,
-                    color: Colors.black,
+                    color: isDark ? Colors.white : Colors.black,
                   ),
                 ),
                 const SizedBox(height: 8),
                 Text(
                   _isSignUp ? 'Create an account to connect' : 'Log in to see your partner',
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.grey.shade600, fontSize: 16),
+                  style: TextStyle(color: Colors.grey.shade500, fontSize: 16),
                 ),
                 const SizedBox(height: 48),
 
                 // Text Fields
                 if (_isSignUp) ...[
                   _buildTextField(
+                    context: context,
                     controller: _nameController,
                     hint: 'Full Name',
                     icon: Icons.person_outline,
@@ -140,12 +143,14 @@ class _LoginScreenState extends State<LoginScreen> {
                   const SizedBox(height: 16),
                 ],
                 _buildTextField(
+                  context: context,
                   controller: _usernameController,
                   hint: 'Username',
                   icon: Icons.alternate_email,
                 ),
                 const SizedBox(height: 16),
                 _buildTextField(
+                  context: context,
                   controller: _passwordController,
                   hint: 'Password',
                   icon: Icons.lock_outline,
@@ -208,19 +213,24 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Widget _buildTextField({
+    required BuildContext context,
     required TextEditingController controller,
     required String hint,
     required IconData icon,
     bool isPassword = false,
   }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    
     return TextField(
       controller: controller,
       obscureText: isPassword,
+      style: TextStyle(color: isDark ? Colors.white : Colors.black),
       decoration: InputDecoration(
         hintText: hint,
-        prefixIcon: Icon(icon, color: Colors.grey.shade600),
+        hintStyle: TextStyle(color: isDark ? Colors.grey.shade400 : Colors.grey.shade600),
+        prefixIcon: Icon(icon, color: isDark ? Colors.grey.shade400 : Colors.grey.shade600),
         filled: true,
-        fillColor: Colors.grey.shade100,
+        fillColor: isDark ? Colors.grey.shade900 : Colors.grey.shade100,
         contentPadding: const EdgeInsets.symmetric(vertical: 16),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
@@ -228,7 +238,7 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Colors.black, width: 1.5),
+          borderSide: BorderSide(color: isDark ? Colors.white : Colors.black, width: 1.5),
         ),
       ),
     );

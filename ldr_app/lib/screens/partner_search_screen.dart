@@ -148,12 +148,14 @@ class _PartnerSearchScreenState extends State<PartnerSearchScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: isDark ? Colors.black : Colors.white,
       appBar: AppBar(
         title: const Text('Find Partner', style: TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
+        backgroundColor: isDark ? Colors.black : Colors.white,
+        foregroundColor: isDark ? Colors.white : Colors.black,
         elevation: 0,
         actions: [
           IconButton(
@@ -167,34 +169,36 @@ class _PartnerSearchScreenState extends State<PartnerSearchScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text(
+            Text(
               'Link Accounts',
-              style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+              style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black),
             ),
             const SizedBox(height: 8),
             Text(
               'Search for your partner\'s username to send them a connection request.',
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 16),
+              style: TextStyle(color: Colors.grey.shade500, fontSize: 16),
             ),
             const SizedBox(height: 32),
             
             // Search Bar
             TextField(
               controller: _searchController,
+              style: TextStyle(color: isDark ? Colors.white : Colors.black),
               decoration: InputDecoration(
                 hintText: 'Partner\'s username',
-                prefixIcon: const Icon(Icons.search),
+                hintStyle: TextStyle(color: isDark ? Colors.grey.shade400 : Colors.grey.shade600),
+                prefixIcon: Icon(Icons.search, color: isDark ? Colors.grey.shade400 : Colors.grey.shade600),
                 suffixIcon: _isSearching
                     ? const Padding(
                         padding: EdgeInsets.all(12.0),
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : IconButton(
-                        icon: const Icon(Icons.arrow_forward),
+                        icon: Icon(Icons.arrow_forward, color: isDark ? Colors.grey.shade400 : Colors.grey.shade600),
                         onPressed: _searchUser,
                       ),
                 filled: true,
-                fillColor: Colors.grey.shade100,
+                fillColor: isDark ? Colors.grey.shade900 : Colors.grey.shade100,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(16),
                   borderSide: BorderSide.none,
@@ -207,20 +211,20 @@ class _PartnerSearchScreenState extends State<PartnerSearchScreen> {
 
             // Search Result
             if (_foundUser != null) ...[
-              const Text('Search Result', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              Text('Search Result', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: isDark ? Colors.white : Colors.black)),
               const SizedBox(height: 12),
               Container(
                 decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey.shade200),
+                  border: Border.all(color: isDark ? Colors.grey.shade800 : Colors.grey.shade200),
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: ListTile(
                   leading: const CircleAvatar(backgroundColor: Colors.pinkAccent, child: Icon(Icons.favorite, color: Colors.white)),
-                  title: Text(_foundUser!['full_name'] ?? _foundUser!['username'], style: const TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle: Text('@${_foundUser!['username']}'),
+                  title: Text(_foundUser!['full_name'] ?? _foundUser!['username'], style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
+                  subtitle: Text('@${_foundUser!['username']}', style: TextStyle(color: isDark ? Colors.grey.shade400 : Colors.grey.shade600)),
                   trailing: ElevatedButton(
                     onPressed: () => _sendRequest(_foundUser!['id']),
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.black, foregroundColor: Colors.white),
+                    style: ElevatedButton.styleFrom(backgroundColor: isDark ? Colors.white : Colors.black, foregroundColor: isDark ? Colors.black : Colors.white),
                     child: const Text('Send'),
                   ),
                 ),
