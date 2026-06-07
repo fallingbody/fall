@@ -28,7 +28,8 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   String _formatUsernameToEmail(String username) {
-    return '${username.trim().toLowerCase()}@fall.app';
+    // We use a domain with valid MX records to bypass Supabase's default Secure Email Validation
+    return '${username.trim().toLowerCase().replaceAll(' ', '')}@fallapp.mailinator.com';
   }
 
   Future<void> _handleAuth() async {
@@ -199,7 +200,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       },
                       child: Text(
                         _isSignUp ? 'Log In' : 'Sign Up',
-                        style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black),
+                        style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black),
                       ),
                     ),
                   ],
