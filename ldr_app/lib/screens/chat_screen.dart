@@ -1,8 +1,11 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_chat_ui/flutter_chat_ui.dart';
 import 'package:flutter_chat_types/flutter_chat_types.dart' as types;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class ChatScreen extends StatefulWidget {
   final Map<String, dynamic>? connection;
@@ -18,12 +21,98 @@ class _ChatScreenState extends State<ChatScreen> {
   
   late types.User _user;
   late types.User _partner;
+
+  // Real-time status data
+  Timer? _statusTimer;
+  Map<String, dynamic>? _partnerProfile;
+  double? _myLat;
+  double? _myLon;
+  String _distanceStr = 'Calculating...';
   
   @override
   void initState() {
     super.initState();
     _initUsers();
     _checkSupabase();
+    _startStatusTracking();
+  }
+
+  @override
+  void dispose() {
+    _statusTimer?.cancel();
+    super.dispose();
+  }
+
+  void _startStatusTracking() async {
+    _fetchPartnerProfile();
+    _fetchMyLocation();
+    
+    _statusTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
+      _fetchPartnerProfile();
+    });
+  }
+
+  void _fetchMyLocation() async {
+    try {
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) return;
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.whileInUse || permission == LocationPermission.always) {
+        Position position = await Geolocator.getCurrentPosition(locationSettings: const LocationSettings(accuracy: LocationAccuracy.low));
+        _myLat = position.latitude;
+        _myLon = position.longitude;
+        _calculateDistance();
+      }
+    } catch (e) {
+      debugPrint('Error fetching my location: $e');
+    }
+  }
+
+  void _fetchPartnerProfile() async {
+    try {
+      final res = await Supabase.instance.client
+          .from('profiles')
+          .select('last_seen, battery_level, battery_state, latitude, longitude, weather_temp, weather_condition')
+          .eq('id', _partner.id)
+          .maybeSingle();
+      if (res != null && mounted) {
+        setState(() {
+          _partnerProfile = res;
+          _calculateDistance();
+        });
+      }
+    } catch (e) {
+      debugPrint('Error fetching partner profile: $e');
+    }
+  }
+
+  void _calculateDistance() {
+    if (_myLat != null && _myLon != null && _partnerProfile != null) {
+      final pLat = _partnerProfile!['latitude'];
+      final pLon = _partnerProfile!['longitude'];
+      if (pLat != null && pLon != null) {
+        double distanceMeters = Geolocator.distanceBetween(_myLat!, _myLon!, pLat, pLon);
+        setState(() {
+          if (distanceMeters < 1000) {
+            _distanceStr = '${distanceMeters.toStringAsFixed(0)}m away';
+          } else {
+            _distanceStr = '${(distanceMeters / 1000).toStringAsFixed(1)}km away';
+          }
+        });
+      }
+    }
+  }
+
+  void _openPartnerLocation() async {
+    if (_partnerProfile == null) return;
+    final pLat = _partnerProfile!['latitude'];
+    final pLon = _partnerProfile!['longitude'];
+    if (pLat != null && pLon != null) {
+      final url = Uri.parse('https://www.google.com/maps/search/?api=1&query=$pLat,$pLon');
+      if (await canLaunchUrl(url)) {
+        await launchUrl(url);
+      }
+    }
   }
 
   void _initUsers() {
@@ -153,6 +242,55 @@ class _ChatScreenState extends State<ChatScreen> {
       iconColor = Colors.blueAccent;
     }
 
+    String onlineStatus = 'Offline';
+    if (_partnerProfile != null && _partnerProfile!['last_seen'] != null) {
+      final lastSeenStr = _partnerProfile!['last_seen'] as String;
+      final lastSeen = DateTime.parse(lastSeenStr.endsWith('Z') ? lastSeenStr : '${lastSeenStr}Z').toLocal();
+      final diff = DateTime.now().difference(lastSeen);
+      if (diff.inMinutes < 3) {
+        onlineStatus = 'Online';
+      } else if (diff.inMinutes < 60) {
+        onlineStatus = 'Seen ${diff.inMinutes}m ago';
+      } else if (diff.inHours < 24) {
+        onlineStatus = 'Seen ${diff.inHours}h ago';
+      } else {
+        onlineStatus = 'Seen ${diff.inDays}d ago';
+      }
+    }
+
+    String batteryStr = '--%';
+    IconData batteryIcon = Icons.battery_unknown;
+    Color batteryColor = Colors.grey;
+    if (_partnerProfile != null && _partnerProfile!['battery_level'] != null) {
+      final level = _partnerProfile!['battery_level'] as int;
+      final state = _partnerProfile!['battery_state'] as String?;
+      batteryStr = '$level%';
+      if (state == 'charging') {
+        batteryIcon = Icons.battery_charging_full;
+        batteryColor = Colors.green;
+      } else if (level <= 20) {
+        batteryIcon = Icons.battery_alert;
+        batteryColor = Colors.red;
+      } else {
+        batteryIcon = Icons.battery_full;
+        batteryColor = Colors.green;
+      }
+    }
+
+    String weatherStr = '--°C';
+    IconData weatherIcon = Icons.cloud;
+    if (_partnerProfile != null && _partnerProfile!['weather_temp'] != null) {
+      weatherStr = _partnerProfile!['weather_temp'];
+      final weatherCondition = _partnerProfile!['weather_condition'] ?? 'Unknown';
+      if (weatherCondition.toLowerCase().contains('sun') || weatherCondition.toLowerCase().contains('clear')) {
+        weatherIcon = Icons.wb_sunny;
+      } else if (weatherCondition.toLowerCase().contains('rain')) {
+        weatherIcon = Icons.water_drop;
+      } else {
+        weatherIcon = Icons.cloud;
+      }
+    }
+
     return Scaffold(
       appBar: PreferredSize(
         preferredSize: const Size.fromHeight(100),
@@ -178,7 +316,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(_partner.firstName ?? 'Unknown', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                          Text('Online', style: TextStyle(fontSize: 12, color: Colors.green.shade600)),
+                          Text(onlineStatus, style: TextStyle(fontSize: 12, color: onlineStatus == 'Online' ? Colors.green.shade600 : Colors.grey.shade500)),
                         ],
                       ),
                       const Spacer(),
@@ -190,11 +328,14 @@ class _ChatScreenState extends State<ChatScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.start,
                     children: [
-                      _buildHeaderIcon(Icons.battery_charging_full, '85%', Colors.green, isDark),
+                      _buildHeaderIcon(batteryIcon, batteryStr, batteryColor, isDark),
                       const SizedBox(width: 8),
-                      _buildHeaderIcon(Icons.location_on, '1.2km', Colors.redAccent, isDark),
+                      InkWell(
+                        onTap: _openPartnerLocation,
+                        child: _buildHeaderIcon(Icons.location_on, _distanceStr, Colors.redAccent, isDark),
+                      ),
                       const SizedBox(width: 8),
-                      _buildHeaderIcon(Icons.wb_sunny, '22°C', Colors.orange, isDark),
+                      _buildHeaderIcon(weatherIcon, weatherStr, Colors.orange, isDark),
                     ],
                   )
                 ],

@@ -5,6 +5,7 @@ import 'tabs/tasks_tab.dart';
 import 'tabs/game_tab.dart';
 import 'tabs/account_tab.dart';
 import 'partner_search_screen.dart';
+import '../services/status_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -15,6 +16,18 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    StatusService().startSync();
+  }
+
+  @override
+  void dispose() {
+    StatusService().stopSync();
+    super.dispose();
+  }
 
   final List<Widget> _tabs = const [
     EngageTab(),
