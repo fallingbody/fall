@@ -6,8 +6,14 @@ import '../services/livekit_service.dart';
 class VideoCallScreen extends StatefulWidget {
   final String roomName;
   final String participantName;
+  final bool isVideoCall;
 
-  const VideoCallScreen({super.key, required this.roomName, required this.participantName});
+  const VideoCallScreen({
+    super.key, 
+    required this.roomName, 
+    required this.participantName,
+    this.isVideoCall = true,
+  });
 
   @override
   State<VideoCallScreen> createState() => _VideoCallScreenState();
@@ -19,13 +25,14 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   
   bool _isConnecting = true;
   bool _micMuted = false;
-  bool _videoMuted = false;
+  late bool _videoMuted;
 
   Participant? _remoteParticipant;
 
   @override
   void initState() {
     super.initState();
+    _videoMuted = !widget.isVideoCall;
     _connect();
   }
 
@@ -63,7 +70,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
 
       await _room.connect(url, token);
       
-      await _room.localParticipant?.setCameraEnabled(true);
+      await _room.localParticipant?.setCameraEnabled(widget.isVideoCall);
       await _room.localParticipant?.setMicrophoneEnabled(true);
 
       // Check if someone is already in the room
@@ -137,18 +144,53 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       backgroundColor: Colors.black,
       body: Stack(
         children: [
+          // Background for Audio Call
+          if (!widget.isVideoCall && remoteVideoTrack == null)
+            Positioned.fill(
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Colors.pink.shade900, Colors.black],
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                  ),
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    CircleAvatar(
+                      radius: 60,
+                      backgroundColor: Colors.pinkAccent.withOpacity(0.3),
+                      child: CircleAvatar(
+                        radius: 50,
+                        backgroundColor: Colors.pink,
+                        child: Text(
+                          widget.participantName[0].toUpperCase(),
+                          style: const TextStyle(fontSize: 40, color: Colors.white, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    Text('Audio Call with ${widget.participantName}', style: const TextStyle(color: Colors.white, fontSize: 20)),
+                    const SizedBox(height: 8),
+                    Text(_isConnecting ? 'Connecting...' : 'Connected', style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 16)),
+                  ],
+                ),
+              ),
+            ),
+
           // Remote Video (Full Screen)
           if (remoteVideoTrack != null)
             Positioned.fill(
               child: VideoTrackRenderer(remoteVideoTrack, fit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover),
             )
-          else
+          else if (widget.isVideoCall)
             const Center(
               child: Text('Waiting for partner...', style: TextStyle(color: Colors.white, fontSize: 18)),
             ),
 
           // Local Video (PiP)
-          if (localVideoTrack != null && !_videoMuted)
+          if (localVideoTrack != null && !_videoMuted && widget.isVideoCall)
             Positioned(
               right: 20,
               top: 60,

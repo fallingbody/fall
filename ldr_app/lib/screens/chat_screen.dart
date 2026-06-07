@@ -335,10 +335,10 @@ class _ChatScreenState extends State<ChatScreen> {
                         icon: const Icon(Icons.call, color: Colors.green), 
                         onPressed: () {
                           if (widget.connection == null) return;
-                          // In a full app, audio call would pass a parameter to start with video muted.
                           Navigator.push(context, MaterialPageRoute(builder: (context) => VideoCallScreen(
                             roomName: widget.connection!['connection_id'],
                             participantName: _user.firstName ?? 'Me',
+                            isVideoCall: false,
                           )));
                         }
                       ),
