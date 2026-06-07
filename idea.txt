@@ -1,0 +1,97 @@
+### 1. Location Sharing
+
+* **Tech Stack:** Supabase (Realtime).
+* **Open Source Lib:** `geolocator`.
+* **Language:** Dart.
+* **Implementation:** Track device GPS coordinates using `geolocator`, store them in a Supabase PostGIS-enabled table, and stream updates via Supabase Realtime to the partner’s device.
+
+### 2. Battery Percentage
+
+* **Tech Stack:** Flutter / Supabase.
+* **Open Source Lib:** `battery_plus`.
+* **Language:** Dart.
+* **Implementation:** Periodically fetch `batteryLevel` using `battery_plus` and update a "status" JSON column in Supabase, which triggers an event listener on the partner’s app.
+
+### 3. Chatting
+
+* **Tech Stack:** Nakama / Supabase.
+* **Open Source Lib:** `flutter_chat_ui`.
+* **Language:** Dart.
+* **Implementation:** Utilize Nakama’s built-in chat channels or store messages in Supabase/PostgreSQL, using the `flutter_chat_ui` widget for a polished message interface.
+
+### 4. Partner Home Screen Pop-ups
+
+* **Tech Stack:** Android/Flutter Widgets.
+* **Open Source Lib:** `home_widget`.
+* **Language:** Dart.
+* **Implementation:** Use `home_widget` to push shared state updates (last message/photo) to a native Android AppWidget, allowing users to see content directly on the home screen.
+
+### 5. Inbuilt Call Feature (Audio/Video)
+
+* **Tech Stack:** LiveKit (Self-hosted).
+* **Open Source Lib:** `livekit_client`.
+* **Language:** Dart.
+* **Implementation:** Deploy the open-source LiveKit server on an Oracle "Always Free" instance; use `livekit_client` in Flutter to manage Peer-to-Peer video and audio streams.
+
+### 6. Small Gaming Zone
+
+* **Tech Stack:** Flutter logic.
+* **Open Source Lib:** `sudoku_dart` (for puzzles).
+* **Language:** Dart.
+* **Implementation:** Integrate logic-based packages like `sudoku_dart` into a dedicated UI module; synchronize game states (e.g., current move) via Nakama’s match/socket service.
+
+### 7. Achievements
+
+* **Tech Stack:** Supabase.
+* **Open Source Lib:** None (Custom logic).
+* **Language:** Dart.
+* **Implementation:** Define achievement criteria (e.g., "Sent 100 messages") in code; when conditions are met, write a record to the `achievements` database table.
+
+### 8. Theme Customisation
+
+* **Tech Stack:** Flutter Theming.
+* **Open Source Lib:** None (Framework built-in).
+* **Language:** Dart.
+* **Implementation:** Use `ThemeData` and `ThemeMode` in Flutter to toggle between JSON-defined color schemes stored in local preferences or the user’s cloud profile.
+
+### 9. Virtual 3D Avatar
+
+* **Tech Stack:** Ready Player Me + Godot.
+* **Open Source Lib:** Godot Engine.
+* **Language:** GDScript/Dart.
+* **Implementation:** Generate avatars via Ready Player Me, export as GLB, and load them into a Godot scene embedded within your Flutter app using a Godot-Flutter plugin.
+
+### 10. Virtual Roaming Zones (Room, Kitchen, Theatre, Garden)
+
+* **Tech Stack:** Godot Engine.
+* **Open Source Lib:** Godot.
+* **Language:** GDScript.
+* **Implementation:** Build 3D environments in Godot; sync character positions (`Transform3D` vectors) between partners using Nakama’s real-time match state synchronization.
+
+### 11. Sleeping/Cooking/Theatre Interactions
+
+* **Tech Stack:** Godot + Nakama.
+* **Open Source Lib:** None (Custom state).
+* **Language:** GDScript.
+* **Implementation:** Define interaction triggers in Godot; when activated, Nakama broadcasts an "interaction_event" to both clients to trigger synchronized animations or shared screen surfaces.
+
+### 12. Garden/Pet Zone
+
+* **Tech Stack:** Godot + Supabase.
+* **Open Source Lib:** None.
+* **Language:** GDScript.
+* **Implementation:** Store pet "happiness" and "growth" stats in Supabase; use Godot logic to render pet interactions based on the retrieved state.
+
+### 13. Memory Hub
+
+* **Tech Stack:** Supabase Storage.
+* **Open Source Lib:** `image_picker`.
+* **Language:** Dart.
+* **Implementation:** Use `image_picker` to upload photos to Supabase Storage; retrieve URLs to populate a grid view in the app, serving as a shared digital photo album.
+
+### 14. Calendar
+
+* **Tech Stack:** Supabase.
+* **Open Source Lib:** `table_calendar`.
+* **Language:** Dart.
+* **Implementation:** Use `table_calendar` to display events fetched from a shared PostgreSQL table in Supabase, where both partners have read/write access.
