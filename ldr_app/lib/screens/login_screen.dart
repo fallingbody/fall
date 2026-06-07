@@ -63,7 +63,17 @@ class _LoginScreenState extends State<LoginScreen> {
         );
 
         if (res.user != null) {
-          // Profile insertion is handled by RLS/Trigger, but we can safely assume auth success.
+          // Manually insert the user into the profiles table so they can be searched
+          try {
+            await _supabase.from('profiles').insert({
+              'id': res.user!.id,
+              'username': username,
+              'full_name': name,
+            });
+          } catch (e) {
+            debugPrint('Profile insert error: $e');
+          }
+
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('Account created! Logging in...')),
