@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'video_call_screen.dart';
 
 class ChatScreen extends StatefulWidget {
   final Map<String, dynamic>? connection;
@@ -320,8 +321,27 @@ class _ChatScreenState extends State<ChatScreen> {
                         ],
                       ),
                       const Spacer(),
-                      IconButton(icon: const Icon(Icons.videocam, color: Colors.blue), onPressed: () {}),
-                      IconButton(icon: const Icon(Icons.call, color: Colors.green), onPressed: () {}),
+                      IconButton(
+                        icon: const Icon(Icons.videocam, color: Colors.blue), 
+                        onPressed: () {
+                          if (widget.connection == null) return;
+                          Navigator.push(context, MaterialPageRoute(builder: (context) => VideoCallScreen(
+                            roomName: widget.connection!['connection_id'],
+                            participantName: _user.firstName ?? 'Me',
+                          )));
+                        }
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.call, color: Colors.green), 
+                        onPressed: () {
+                          if (widget.connection == null) return;
+                          // In a full app, audio call would pass a parameter to start with video muted.
+                          Navigator.push(context, MaterialPageRoute(builder: (context) => VideoCallScreen(
+                            roomName: widget.connection!['connection_id'],
+                            participantName: _user.firstName ?? 'Me',
+                          )));
+                        }
+                      ),
                     ],
                   ),
                   const SizedBox(height: 4),
