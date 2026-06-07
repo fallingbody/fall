@@ -9,6 +9,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout repository
@@ -44,3 +46,12 @@ jobs:
         with:
           name: fall-ldr-app-apk
           path: ldr_app/build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Create Release (Direct APK Download)
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: "ldr_app/build/app/outputs/flutter-apk/app-release.apk"
+          tag: "latest"
+          name: "Latest Android Build"
+          body: "Download the raw `app-release.apk` file below to install the app directly on your phone!"
+          allowUpdates: true
