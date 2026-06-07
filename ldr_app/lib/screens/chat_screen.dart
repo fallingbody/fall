@@ -222,6 +222,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Scaffold(
       appBar: AppBar(
         title: InkWell(
@@ -252,11 +254,12 @@ class _ChatScreenState extends State<ChatScreen> {
         messages: _messages,
         onSendPressed: _handleSendPressed,
         user: _user,
-        theme: const DefaultChatTheme(
-          primaryColor: Colors.black,
-          backgroundColor: Colors.white,
-          inputBackgroundColor: Color(0xFFF5F5F5), // Light grey
-          inputTextColor: Colors.black,
+        theme: DefaultChatTheme(
+          primaryColor: isDark ? Colors.white : Colors.black,
+          backgroundColor: isDark ? Colors.black : Colors.white,
+          inputBackgroundColor: isDark ? Colors.grey.shade900 : const Color(0xFFF5F5F5),
+          inputTextColor: isDark ? Colors.white : Colors.black,
+          sendButtonIcon: Icon(Icons.send, color: isDark ? Colors.white : Colors.black),
         ),
       ),
     );
