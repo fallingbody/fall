@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:go_router/go_router.dart';
 
 class AccountTab extends StatelessWidget {
   const AccountTab({super.key});
@@ -34,8 +35,11 @@ class AccountTab extends StatelessWidget {
               const Spacer(),
               IconButton(
                 icon: const Icon(Icons.logout, color: Colors.red),
-                onPressed: () {
-                  Supabase.instance.client.auth.signOut();
+                onPressed: () async {
+                  await Supabase.instance.client.auth.signOut();
+                  if (context.mounted) {
+                    context.go('/');
+                  }
                 },
               ),
             ],

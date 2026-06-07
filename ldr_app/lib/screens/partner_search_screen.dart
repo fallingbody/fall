@@ -94,16 +94,18 @@ class _PartnerSearchScreenState extends State<PartnerSearchScreen> {
           .maybeSingle();
       
       if (res != null) {
-        // Check if there's already a pending request
+        // Check if there's already ANY connection (pending or accepted) between these two users
+        final myId = _supabase.auth.currentUser!.id;
+        final theirId = res['id'];
+
         final existing = await _supabase
             .from('connection_requests')
             .select('id, status')
-            .eq('sender_id', _supabase.auth.currentUser!.id)
-            .eq('receiver_id', res['id'])
-            .eq('status', 'pending')
+            .or('and(sender_id.eq.$myId,receiver_id.eq.$theirId),and(sender_id.eq.$theirId,receiver_id.eq.$myId)')
             .maybeSingle();
             
-        res['has_pending'] = existing != null;
+        res['has_connection'] = existing != null;
+        res['connection_status'] = existing?['status'];
       }
 
       setState(() {
@@ -137,7 +139,10 @@ class _PartnerSearchScreenState extends State<PartnerSearchScreen> {
       
       if (mounted) {
         setState(() {
-          if (_foundUser != null) _foundUser!['has_pending'] = true;
+          if (_foundUser != null) {
+            _foundUser!['has_connection'] = true;
+            _foundUser!['connection_status'] = 'pending';
+          }
         });
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Request sent successfully!')),
@@ -315,12 +320,14 @@ class _PartnerSearchScreenState extends State<PartnerSearchScreen> {
                         title: Text(_foundUser!['full_name'] ?? _foundUser!['username'], style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
                         subtitle: Text('@${_foundUser!['username']}', style: TextStyle(color: isDark ? Colors.grey.shade400 : Colors.grey.shade600)),
                         trailing: ElevatedButton(
-                          onPressed: _foundUser!['has_pending'] == true ? null : () => _sendRequest(_foundUser!['id']),
+                          onPressed: _foundUser!['has_connection'] == true ? null : () => _sendRequest(_foundUser!['id']),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: _foundUser!['has_pending'] == true ? Colors.grey : (isDark ? Colors.white : Colors.black), 
-                            foregroundColor: _foundUser!['has_pending'] == true ? Colors.white : (isDark ? Colors.black : Colors.white)
+                            backgroundColor: _foundUser!['has_connection'] == true ? Colors.grey : (isDark ? Colors.white : Colors.black), 
+                            foregroundColor: _foundUser!['has_connection'] == true ? Colors.white : (isDark ? Colors.black : Colors.white)
                           ),
-                          child: Text(_foundUser!['has_pending'] == true ? 'Sent' : 'Send'),
+                          child: Text(_foundUser!['has_connection'] == true 
+                            ? (_foundUser!['connection_status'] == 'accepted' ? 'Connected' : 'Pending') 
+                            : 'Send'),
                         ),
                       ),
                     ),

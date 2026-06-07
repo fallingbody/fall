@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../partner_search_screen.dart';
 
 class EngageTab extends StatefulWidget {
   const EngageTab({super.key});
@@ -102,25 +103,62 @@ class _EngageTabState extends State<EngageTab> {
       onRefresh: _fetchConnections,
       child: CustomScrollView(
         slivers: [
-          // Top Row (Quick Actions)
+          // Stories Row
+          if (!_isLoading && _connections.isNotEmpty)
+            SliverToBoxAdapter(
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 16.0),
+                decoration: BoxDecoration(
+                  border: Border(bottom: BorderSide(color: isDark ? Colors.grey.shade900 : Colors.grey.shade200)),
+                ),
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                  child: Row(
+                    children: [
+                      // My Story
+                      _buildStoryItem(Icons.add, 'Your Story', Colors.grey, isDark),
+                      const SizedBox(width: 20),
+                      // Partner & Friends Stories
+                      ..._connections.map((conn) {
+                        final category = conn['category'] as String;
+                        IconData icon;
+                        Color color;
+                        if (category == 'partner') {
+                          icon = Icons.favorite;
+                          color = Colors.pinkAccent;
+                        } else if (category == 'family') {
+                          icon = Icons.home;
+                          color = Colors.orangeAccent;
+                        } else {
+                          icon = Icons.group;
+                          color = Colors.blueAccent;
+                        }
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 20.0),
+                          child: _buildStoryItem(icon, conn['profile']['username'] ?? 'User', color, isDark),
+                        );
+                      }),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+          // Achievements & Mini Games Strip
           SliverToBoxAdapter(
             child: Container(
               padding: const EdgeInsets.symmetric(vertical: 16.0),
               decoration: BoxDecoration(
                 border: Border(bottom: BorderSide(color: isDark ? Colors.grey.shade900 : Colors.grey.shade200)),
               ),
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                child: Row(
-                  children: [
-                    _buildQuickAction(Icons.videocam, 'Video Call', Colors.blue, isDark),
-                    const SizedBox(width: 20),
-                    _buildQuickAction(Icons.call, 'Voice Call', Colors.green, isDark),
-                    const SizedBox(width: 20),
-                    _buildQuickAction(Icons.extension, 'Mini Games', Colors.orange, isDark),
-                  ],
-                ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _buildQuickAction(Icons.emoji_events, 'Achievements', Colors.amber, isDark),
+                  _buildQuickAction(Icons.extension, 'Mini Games', Colors.orange, isDark),
+                  _buildQuickAction(Icons.photo_library, 'Memories', Colors.purple, isDark),
+                ],
               ),
             ),
           ),
@@ -139,7 +177,7 @@ class _EngageTabState extends State<EngageTab> {
                     Text('No connections yet.', style: TextStyle(color: Colors.grey.shade500, fontSize: 16)),
                     const SizedBox(height: 8),
                     ElevatedButton(
-                      onPressed: () => context.push('/'), // Will just pop if already on Home, wait, Home has a heart icon
+                      onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const PartnerSearchScreen())),
                       style: ElevatedButton.styleFrom(backgroundColor: Colors.pink, foregroundColor: Colors.white),
                       child: const Text('Tap the ❤️ to find people!'),
                     )
@@ -234,6 +272,45 @@ class _EngageTabState extends State<EngageTab> {
         ),
         const SizedBox(height: 6),
         Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: isDark ? Colors.white : Colors.black)),
+      ],
+    );
+  }
+
+  Widget _buildStoryItem(IconData icon, String label, Color color, bool isDark) {
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(3),
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: LinearGradient(
+              colors: [color.withOpacity(0.5), color, color.withOpacity(0.8)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+          child: Container(
+            width: 64,
+            height: 64,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: isDark ? Colors.black : Colors.white,
+              border: Border.all(color: isDark ? Colors.black : Colors.white, width: 2),
+            ),
+            child: Icon(icon, color: color, size: 28),
+          ),
+        ),
+        const SizedBox(height: 6),
+        SizedBox(
+          width: 70,
+          child: Text(
+            label, 
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: isDark ? Colors.white : Colors.black),
+            textAlign: TextAlign.center,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
       ],
     );
   }
