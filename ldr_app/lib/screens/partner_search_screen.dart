@@ -34,14 +34,40 @@ class _PartnerSearchScreenState extends State<PartnerSearchScreen> {
     if (userId == null) return;
 
     try {
-      final res = await _supabase
+      // 1. Fetch raw connection requests targeting this user
+      final requests = await _supabase
           .from('connection_requests')
-          .select('id, sender_id, status, profiles:sender_id ( username, full_name )')
+          .select('id, sender_id, status')
           .eq('receiver_id', userId)
           .eq('status', 'pending');
+
+      if (requests.isEmpty) {
+        setState(() {
+          _incomingRequests = [];
+        });
+        return;
+      }
+
+      // 2. Extract sender IDs
+      final List<String> senderIds = requests.map<String>((req) => req['sender_id'] as String).toList();
+
+      // 3. Fetch profiles for those senders
+      final profiles = await _supabase
+          .from('profiles')
+          .select('id, username, full_name')
+          .inFilter('id', senderIds);
+
+      // 4. Combine them in memory
+      final combined = requests.map((req) {
+        final profile = profiles.firstWhere((p) => p['id'] == req['sender_id'], orElse: () => {'username': 'Unknown', 'full_name': 'Unknown User'});
+        return {
+          ...req,
+          'profiles': profile,
+        };
+      }).toList();
       
       setState(() {
-        _incomingRequests = res;
+        _incomingRequests = combined;
       });
     } catch (e) {
       debugPrint('Error fetching requests: $e');

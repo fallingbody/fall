@@ -17,7 +17,7 @@ class _ChatScreenState extends State<ChatScreen> {
   late types.User _user;
   late types.User _partner;
   
-  bool _isSupabaseConfigured = false;
+  bool _isSupabaseConfigured = true;
 
   @override
   void initState() {
@@ -45,13 +45,11 @@ class _ChatScreenState extends State<ChatScreen> {
       }
 
       if (mounted) {
-        setState(() {
-          _isSupabaseConfigured = true;
-        });
+        setState(() {});
       }
       _listenToMessages(client);
     } catch (e) {
-      _loadMockMessages();
+      debugPrint('Error configuring Supabase stream: $e');
     }
   }
 
@@ -84,41 +82,21 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _handleSendPressed(types.PartialText message) async {
-    if (_isSupabaseConfigured) {
-      try {
-        await Supabase.instance.client.from('messages').insert({
-          'id': const Uuid().v4(),
-          'author_id': _user.id,
-          'text': message.text,
-          'created_at': DateTime.now().toIso8601String(),
-        });
-      } catch (e) {
-        debugPrint('Error sending message: $e');
-      }
-    } else {
-      // Fallback mock logic
-      final textMessage = types.TextMessage(
-        author: _user,
-        createdAt: DateTime.now().millisecondsSinceEpoch,
-        id: const Uuid().v4(),
-        text: message.text,
-      );
-      setState(() {
-        _messages.insert(0, textMessage);
+    try {
+      await Supabase.instance.client.from('messages').insert({
+        'id': const Uuid().v4(),
+        'author_id': _user.id,
+        'text': message.text,
+        'created_at': DateTime.now().toIso8601String(),
       });
+    } catch (e) {
+      debugPrint('Error sending message: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to send message')),
+        );
+      }
     }
-  }
-
-  void _loadMockMessages() {
-    final msg = types.TextMessage(
-      author: _partner,
-      createdAt: DateTime.now().millisecondsSinceEpoch - 60000,
-      id: const Uuid().v4(),
-      text: 'Supabase is not configured yet! This is a mock message. Add your keys to .env and restart!',
-    );
-    setState(() {
-      _messages.insert(0, msg);
-    });
   }
 
   Widget _buildInfoCard(IconData icon, String title, String value, Color iconColor) {
