@@ -4,7 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:go_router/go_router.dart';
 
-import 'screens/home_screen.dart';
+import 'screens/auth_wrapper.dart';
 import 'screens/chat_screen.dart';
 import 'screens/calendar_screen.dart';
 import 'screens/memories_screen.dart';
@@ -41,52 +41,50 @@ final GoRouter _router = GoRouter(
     GoRoute(
       path: '/',
       builder: (BuildContext context, GoRouterState state) {
-        return const HomeScreen();
+        return const AuthWrapper();
       },
-      routes: <RouteBase>[
-        GoRoute(
-          path: 'chat',
-          builder: (BuildContext context, GoRouterState state) {
-            return const ChatScreen();
-          },
-        ),
-        GoRoute(
-          path: 'calendar',
-          builder: (BuildContext context, GoRouterState state) {
-            return const CalendarScreen();
-          },
-        ),
-        GoRoute(
-          path: 'memories',
-          builder: (BuildContext context, GoRouterState state) {
-            return const MemoriesScreen();
-          },
-        ),
-        GoRoute(
-          path: 'call',
-          builder: (BuildContext context, GoRouterState state) {
-            return const CallScreen();
-          },
-        ),
-        GoRoute(
-          path: 'achievements',
-          builder: (BuildContext context, GoRouterState state) {
-            return const AchievementsScreen();
-          },
-        ),
-        GoRoute(
-          path: 'games',
-          builder: (BuildContext context, GoRouterState state) {
-            return const GamesScreen();
-          },
-        ),
-        GoRoute(
-          path: 'settings',
-          builder: (BuildContext context, GoRouterState state) {
-            return const SettingsScreen();
-          },
-        ),
-      ],
+    ),
+    GoRoute(
+      path: '/chat',
+      builder: (BuildContext context, GoRouterState state) {
+        return const ChatScreen();
+      },
+    ),
+    GoRoute(
+      path: '/calendar',
+      builder: (BuildContext context, GoRouterState state) {
+        return const CalendarScreen();
+      },
+    ),
+    GoRoute(
+      path: '/memories',
+      builder: (BuildContext context, GoRouterState state) {
+        return const MemoriesScreen();
+      },
+    ),
+    GoRoute(
+      path: '/call',
+      builder: (BuildContext context, GoRouterState state) {
+        return const CallScreen();
+      },
+    ),
+    GoRoute(
+      path: '/achievements',
+      builder: (BuildContext context, GoRouterState state) {
+        return const AchievementsScreen();
+      },
+    ),
+    GoRoute(
+      path: '/games',
+      builder: (BuildContext context, GoRouterState state) {
+        return const GamesScreen();
+      },
+    ),
+    GoRoute(
+      path: '/settings',
+      builder: (BuildContext context, GoRouterState state) {
+        return const SettingsScreen();
+      },
     ),
   ],
 );
@@ -97,15 +95,15 @@ class LdrApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp.router(
-      title: 'LDR App',
+      title: 'fall',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple, brightness: Brightness.light),
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.black, brightness: Brightness.light),
         useMaterial3: true,
         textTheme: GoogleFonts.outfitTextTheme(Theme.of(context).textTheme),
       ),
       darkTheme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple, brightness: Brightness.dark),
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.black, brightness: Brightness.dark),
         useMaterial3: true,
         textTheme: GoogleFonts.outfitTextTheme(ThemeData.dark().textTheme),
       ),

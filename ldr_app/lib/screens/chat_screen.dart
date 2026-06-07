@@ -14,27 +14,43 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   List<types.Message> _messages = [];
   
-  // Hardcoded for testing. In production, these come from Supabase Auth
-  final _user = const types.User(id: 'user_1_id', firstName: 'Me');
-  final _partner = const types.User(id: 'partner_id', firstName: 'My Love');
+  late types.User _user;
+  late types.User _partner;
   
   bool _isSupabaseConfigured = false;
 
   @override
   void initState() {
     super.initState();
+    _initUsers();
     _checkSupabase();
   }
 
-  void _checkSupabase() {
+  void _initUsers() {
+    final currentUserId = Supabase.instance.client.auth.currentUser?.id ?? 'user_1_id';
+    _user = types.User(id: currentUserId, firstName: 'Me');
+    _partner = const types.User(id: 'partner_id', firstName: 'Partner');
+  }
+
+  void _checkSupabase() async {
     try {
       final client = Supabase.instance.client;
-      setState(() {
-        _isSupabaseConfigured = true;
-      });
+      final currentUserId = client.auth.currentUser?.id;
+      
+      if (currentUserId != null) {
+        final res = await client.from('profiles').select('partner_id').eq('id', currentUserId).maybeSingle();
+        if (res != null && res['partner_id'] != null) {
+          _partner = types.User(id: res['partner_id'], firstName: 'Partner');
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _isSupabaseConfigured = true;
+        });
+      }
       _listenToMessages(client);
     } catch (e) {
-      // Supabase not initialized, fallback to mock
       _loadMockMessages();
     }
   }
@@ -46,7 +62,11 @@ class _ChatScreenState extends State<ChatScreen> {
         .order('created_at', ascending: false) // flutter_chat_ui wants newest first
         .listen((List<Map<String, dynamic>> data) {
       
-      final mappedMessages = data.map((row) {
+      // Filter out messages that don't belong to this pair
+      final filteredData = data.where((row) => 
+          row['author_id'] == _user.id || row['author_id'] == _partner.id).toList();
+
+      final mappedMessages = filteredData.map((row) {
         return types.TextMessage(
           id: row['id'],
           author: row['author_id'] == _user.id ? _user : _partner,
@@ -55,9 +75,11 @@ class _ChatScreenState extends State<ChatScreen> {
         );
       }).toList();
 
-      setState(() {
-        _messages = mappedMessages;
-      });
+      if (mounted) {
+        setState(() {
+          _messages = mappedMessages;
+        });
+      }
     });
   }
 
