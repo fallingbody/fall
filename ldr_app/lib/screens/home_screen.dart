@@ -4,6 +4,7 @@ import 'tabs/engage_tab.dart';
 import 'tabs/tasks_tab.dart';
 import 'tabs/game_tab.dart';
 import 'tabs/account_tab.dart';
+import 'partner_search_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -24,40 +25,43 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: isDark ? Colors.black : Colors.white,
       appBar: AppBar(
-        title: const Text(
+        title: Text(
           'fall',
           style: TextStyle(
             fontSize: 28,
             fontWeight: FontWeight.w800,
             letterSpacing: -1.5,
-            color: Colors.black,
+            color: isDark ? Colors.white : Colors.black,
           ),
         ),
-        backgroundColor: Colors.white,
+        backgroundColor: isDark ? Colors.black : Colors.white,
         elevation: 0,
         actions: [
-          // Instagram/WhatsApp style top-right action icons
           IconButton(
-            icon: const Icon(Icons.favorite_border, color: Colors.black),
-            onPressed: () {},
+            icon: Icon(Icons.favorite_border, color: isDark ? Colors.white : Colors.black),
+            onPressed: () {
+              Navigator.push(context, MaterialPageRoute(builder: (context) => const PartnerSearchScreen()));
+            },
           ),
         ],
       ),
       body: _tabs[_currentIndex],
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
-          border: Border(top: BorderSide(color: Colors.grey.shade200)),
+          border: Border(top: BorderSide(color: isDark ? Colors.grey.shade900 : Colors.grey.shade200)),
         ),
         child: BottomNavigationBar(
           currentIndex: _currentIndex,
           onTap: (index) => setState(() => _currentIndex = index),
           type: BottomNavigationBarType.fixed,
-          backgroundColor: Colors.white,
-          selectedItemColor: Colors.black,
-          unselectedItemColor: Colors.grey,
+          backgroundColor: isDark ? Colors.black : Colors.white,
+          selectedItemColor: isDark ? Colors.white : Colors.black,
+          unselectedItemColor: isDark ? Colors.grey.shade800 : Colors.grey,
           showSelectedLabels: false,
           showUnselectedLabels: false,
           elevation: 0,

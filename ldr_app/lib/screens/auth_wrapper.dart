@@ -88,10 +88,6 @@ class _AuthWrapperState extends State<AuthWrapper> {
       return const LoginScreen();
     }
 
-    if (!_hasPartner) {
-      return const PartnerSearchScreen();
-    }
-
     return const HomeScreen();
   }
 }
