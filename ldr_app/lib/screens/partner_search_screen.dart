@@ -254,12 +254,6 @@ class _PartnerSearchScreenState extends State<PartnerSearchScreen> {
               Tab(text: 'Requests'),
             ],
           ),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.logout),
-              onPressed: () => _supabase.auth.signOut(),
-            )
-          ],
         ),
         body: TabBarView(
           children: [

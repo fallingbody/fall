@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class AccountTab extends StatelessWidget {
   const AccountTab({super.key});
@@ -29,6 +30,13 @@ class AccountTab extends StatelessWidget {
                   const SizedBox(height: 4),
                   Text('Status: Online', style: TextStyle(color: Colors.grey.shade600)),
                 ],
+              ),
+              const Spacer(),
+              IconButton(
+                icon: const Icon(Icons.logout, color: Colors.red),
+                onPressed: () {
+                  Supabase.instance.client.auth.signOut();
+                },
               ),
             ],
           ),
