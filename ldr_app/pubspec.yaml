@@ -45,6 +45,7 @@ dependencies:
   battery_plus: ^7.0.0
   home_widget: ^0.9.3
   provider: ^6.1.5+1
+  uuid: ^4.5.3
 
 dev_dependencies:
   flutter_test:
