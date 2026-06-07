@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:livekit_client/livekit_client.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../services/livekit_service.dart';
 
@@ -26,6 +27,8 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   bool _isConnecting = true;
   bool _micMuted = false;
   late bool _videoMuted;
+  late bool _speakerOn;
+  bool _isScreenSharing = false;
 
   Participant? _remoteParticipant;
 
@@ -33,6 +36,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   void initState() {
     super.initState();
     _videoMuted = !widget.isVideoCall;
+    _speakerOn = widget.isVideoCall;
     _connect();
   }
 
@@ -72,6 +76,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       
       await _room.localParticipant?.setCameraEnabled(widget.isVideoCall);
       await _room.localParticipant?.setMicrophoneEnabled(true);
+      await Hardware.instance.setSpeakerphoneOn(_speakerOn);
 
       // Check if someone is already in the room
       if (_room.remoteParticipants.isNotEmpty) {
@@ -106,8 +111,32 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
 
   void _toggleVideo() async {
     if (_room.localParticipant == null) return;
-    await _room.localParticipant!.setCameraEnabled(_videoMuted);
-    setState(() => _videoMuted = !_videoMuted);
+    bool nextState = !_videoMuted;
+    await _room.localParticipant!.setCameraEnabled(nextState);
+    
+    // Automatically switch to speakerphone when turning video on, or earpiece when turning off
+    if (nextState) { // turning camera off (audio only) -> earpiece
+      _speakerOn = false;
+      await Hardware.instance.setSpeakerphoneOn(false);
+    } else { // turning camera on -> speaker
+      _speakerOn = true;
+      await Hardware.instance.setSpeakerphoneOn(true);
+    }
+    
+    setState(() => _videoMuted = nextState);
+  }
+
+  void _toggleSpeaker() async {
+    bool nextState = !_speakerOn;
+    await Hardware.instance.setSpeakerphoneOn(nextState);
+    setState(() => _speakerOn = nextState);
+  }
+
+  void _toggleScreenShare() async {
+    if (_room.localParticipant == null) return;
+    bool nextState = !_isScreenSharing;
+    await _room.localParticipant!.setScreenShareEnabled(nextState);
+    setState(() => _isScreenSharing = nextState);
   }
 
   @override
@@ -119,14 +148,21 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       );
     }
 
-    // Get remote video track
+    // Get remote video track (prioritize screen share if available)
     VideoTrack? remoteVideoTrack;
     if (_remoteParticipant != null) {
-      final pub = _remoteParticipant!.videoTrackPublications.values.firstWhere(
-        (p) => p.track != null,
-        orElse: () => _remoteParticipant!.videoTrackPublications.values.first, // fallback, though track might be null
-      );
-      if (pub.track is VideoTrack) remoteVideoTrack = pub.track as VideoTrack;
+      // 1. Try to find a screen share track first
+      final screenSharePubs = _remoteParticipant!.videoTrackPublications.values.where((p) => p.source == TrackSource.screenShareVideo && p.track != null).toList();
+      
+      if (screenSharePubs.isNotEmpty) {
+        remoteVideoTrack = screenSharePubs.first.track as VideoTrack;
+      } else {
+        // 2. Fallback to camera track
+        final cameraPubs = _remoteParticipant!.videoTrackPublications.values.where((p) => p.track != null).toList();
+        if (cameraPubs.isNotEmpty) {
+          remoteVideoTrack = cameraPubs.first.track as VideoTrack;
+        }
+      }
     }
 
     // Get local video track
@@ -182,9 +218,9 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
           // Remote Video (Full Screen)
           if (remoteVideoTrack != null)
             Positioned.fill(
-              child: VideoTrackRenderer(remoteVideoTrack, fit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover),
+              child: VideoTrackRenderer(remoteVideoTrack, fit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain),
             )
-          else if (widget.isVideoCall)
+          else if (!_videoMuted)
             const Center(
               child: Text('Waiting for partner...', style: TextStyle(color: Colors.white, fontSize: 18)),
             ),
@@ -210,15 +246,24 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
             bottom: 40,
             left: 0,
             right: 0,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+            child: Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 15,
               children: [
+                _buildControlButton(
+                  icon: _speakerOn ? Icons.volume_up : Icons.volume_down,
+                  color: _speakerOn ? Colors.blueAccent : Colors.white24,
+                  onPressed: _toggleSpeaker,
+                  size: 50,
+                  iconSize: 22,
+                ),
                 _buildControlButton(
                   icon: _micMuted ? Icons.mic_off : Icons.mic,
                   color: _micMuted ? Colors.red : Colors.white24,
                   onPressed: _toggleMic,
+                  size: 50,
+                  iconSize: 22,
                 ),
-                const SizedBox(width: 20),
                 _buildControlButton(
                   icon: Icons.call_end,
                   color: Colors.red,
@@ -226,11 +271,19 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
                   iconSize: 32,
                   onPressed: () => Navigator.pop(context),
                 ),
-                const SizedBox(width: 20),
                 _buildControlButton(
                   icon: _videoMuted ? Icons.videocam_off : Icons.videocam,
                   color: _videoMuted ? Colors.red : Colors.white24,
                   onPressed: _toggleVideo,
+                  size: 50,
+                  iconSize: 22,
+                ),
+                _buildControlButton(
+                  icon: _isScreenSharing ? Icons.stop_screen_share : Icons.screen_share,
+                  color: _isScreenSharing ? Colors.green : Colors.white24,
+                  onPressed: _toggleScreenShare,
+                  size: 50,
+                  iconSize: 22,
                 ),
               ],
             ),
