@@ -59,3 +59,4 @@ jobs:
           name: "Latest Android Build"
           body: "Download the raw `fall.apk` file below to install the app directly on your phone!"
           allowUpdates: true
+          replacesArtifacts: true
