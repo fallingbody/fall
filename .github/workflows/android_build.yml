@@ -23,7 +23,6 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.19.0' # Uses a stable, recent version of Flutter
           channel: 'stable'
 
       - name: Create .env file from Secrets
