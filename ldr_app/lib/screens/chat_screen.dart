@@ -5,7 +5,9 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
 class ChatScreen extends StatefulWidget {
-  const ChatScreen({super.key});
+  final Map<String, dynamic>? connection;
+
+  const ChatScreen({super.key, this.connection});
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -17,8 +19,6 @@ class _ChatScreenState extends State<ChatScreen> {
   late types.User _user;
   late types.User _partner;
   
-  bool _isSupabaseConfigured = true;
-
   @override
   void initState() {
     super.initState();
@@ -29,21 +29,18 @@ class _ChatScreenState extends State<ChatScreen> {
   void _initUsers() {
     final currentUserId = Supabase.instance.client.auth.currentUser?.id ?? 'user_1_id';
     _user = types.User(id: currentUserId, firstName: 'Me');
-    _partner = const types.User(id: 'partner_id', firstName: 'Partner');
+    
+    if (widget.connection != null) {
+      final profile = widget.connection!['profile'];
+      _partner = types.User(id: widget.connection!['other_user_id'], firstName: profile['full_name'] ?? profile['username'] ?? 'Unknown');
+    } else {
+      _partner = const types.User(id: 'partner_id', firstName: 'Partner');
+    }
   }
 
   void _checkSupabase() async {
     try {
       final client = Supabase.instance.client;
-      final currentUserId = client.auth.currentUser?.id;
-      
-      if (currentUserId != null) {
-        final res = await client.from('profiles').select('partner_id').eq('id', currentUserId).maybeSingle();
-        if (res != null && res['partner_id'] != null) {
-          _partner = types.User(id: res['partner_id'], firstName: 'Partner');
-        }
-      }
-
       if (mounted) {
         setState(() {});
       }
@@ -60,9 +57,10 @@ class _ChatScreenState extends State<ChatScreen> {
         .order('created_at', ascending: false) // flutter_chat_ui wants newest first
         .listen((List<Map<String, dynamic>> data) {
       
-      // Filter out messages that don't belong to this pair
+      // Filter strictly for this connection (messages sent by me to them, or them to me)
       final filteredData = data.where((row) => 
-          row['author_id'] == _user.id || row['author_id'] == _partner.id).toList();
+          (row['author_id'] == _user.id && row['receiver_id'] == _partner.id) || 
+          (row['author_id'] == _partner.id && row['receiver_id'] == _user.id)).toList();
 
       final mappedMessages = filteredData.map((row) {
         return types.TextMessage(
@@ -86,6 +84,7 @@ class _ChatScreenState extends State<ChatScreen> {
       await Supabase.instance.client.from('messages').insert({
         'id': const Uuid().v4(),
         'author_id': _user.id,
+        'receiver_id': _partner.id,
         'text': message.text,
         'created_at': DateTime.now().toIso8601String(),
       });
@@ -134,7 +133,7 @@ class _ChatScreenState extends State<ChatScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Partner Status', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              Text('${_partner.firstName}\'s Status', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               const SizedBox(height: 16),
               
               // Status & Battery Row
@@ -187,7 +186,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   ),
                   onPressed: () {
                     Navigator.pop(context); // close sheet
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Widget sent to partner!')));
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Widget sent!')));
                   },
                 ),
               ),
@@ -202,30 +201,45 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
+    // Use category from connection to determine icon/color if available
+    String category = widget.connection?['category'] ?? 'friend';
+    IconData icon;
+    Color iconColor;
+    if (category == 'partner') {
+      icon = Icons.favorite;
+      iconColor = Colors.pinkAccent;
+    } else if (category == 'family') {
+      icon = Icons.home;
+      iconColor = Colors.orangeAccent;
+    } else {
+      icon = Icons.group;
+      iconColor = Colors.blueAccent;
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: InkWell(
           onTap: () => _showPartnerDashboard(context),
           child: Row(
             children: [
-              const CircleAvatar(
+              CircleAvatar(
                 radius: 18,
-                backgroundColor: Colors.pinkAccent,
-                child: Icon(Icons.favorite, color: Colors.white, size: 18),
+                backgroundColor: iconColor,
+                child: Icon(icon, color: Colors.white, size: 18),
               ),
               const SizedBox(width: 10),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('My Love ❤️', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  Text(_partner.firstName ?? 'Unknown', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                   Text('Online', style: TextStyle(fontSize: 12, color: Colors.green.shade600)),
                 ],
               ),
             ],
           ),
         ),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
+        backgroundColor: isDark ? Colors.black : Colors.white,
+        foregroundColor: isDark ? Colors.white : Colors.black,
         elevation: 1,
       ),
       body: Chat(
@@ -233,7 +247,7 @@ class _ChatScreenState extends State<ChatScreen> {
         onSendPressed: _handleSendPressed,
         user: _user,
         theme: DefaultChatTheme(
-          primaryColor: isDark ? Colors.white : Colors.black,
+          primaryColor: Colors.pink, // Fixes white on white blending! Solid vibrant color!
           backgroundColor: isDark ? Colors.black : Colors.white,
           inputBackgroundColor: isDark ? Colors.grey.shade900 : const Color(0xFFF5F5F5),
           inputTextColor: isDark ? Colors.white : Colors.black,

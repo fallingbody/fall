@@ -47,7 +47,8 @@ final GoRouter _router = GoRouter(
     GoRoute(
       path: '/chat',
       builder: (BuildContext context, GoRouterState state) {
-        return const ChatScreen();
+        final conn = state.extra as Map<String, dynamic>?;
+        return ChatScreen(connection: conn);
       },
     ),
     GoRoute(

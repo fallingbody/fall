@@ -34,10 +34,9 @@ class _PartnerSearchScreenState extends State<PartnerSearchScreen> {
     if (userId == null) return;
 
     try {
-      // 1. Fetch raw connection requests targeting this user
       final requests = await _supabase
           .from('connection_requests')
-          .select('id, sender_id, status')
+          .select('id, sender_id, status, category')
           .eq('receiver_id', userId)
           .eq('status', 'pending');
 
@@ -48,16 +47,13 @@ class _PartnerSearchScreenState extends State<PartnerSearchScreen> {
         return;
       }
 
-      // 2. Extract sender IDs
       final List<String> senderIds = requests.map<String>((req) => req['sender_id'] as String).toList();
 
-      // 3. Fetch profiles for those senders
       final profiles = await _supabase
           .from('profiles')
           .select('id, username, full_name')
           .inFilter('id', senderIds);
 
-      // 4. Combine them in memory
       final combined = requests.map((req) {
         final profile = profiles.firstWhere((p) => p['id'] == req['sender_id'], orElse: () => {'username': 'Unknown', 'full_name': 'Unknown User'});
         return {
@@ -77,6 +73,13 @@ class _PartnerSearchScreenState extends State<PartnerSearchScreen> {
   Future<void> _searchUser() async {
     final username = _searchController.text.trim();
     if (username.isEmpty) return;
+    
+    // Can't search yourself
+    final myProfile = await _supabase.from('profiles').select('username').eq('id', _supabase.auth.currentUser!.id).maybeSingle();
+    if (myProfile != null && myProfile['username'] == username) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("You can't search yourself!")));
+      return;
+    }
 
     setState(() {
       _isSearching = true;
@@ -90,6 +93,19 @@ class _PartnerSearchScreenState extends State<PartnerSearchScreen> {
           .eq('username', username)
           .maybeSingle();
       
+      if (res != null) {
+        // Check if there's already a pending request
+        final existing = await _supabase
+            .from('connection_requests')
+            .select('id, status')
+            .eq('sender_id', _supabase.auth.currentUser!.id)
+            .eq('receiver_id', res['id'])
+            .eq('status', 'pending')
+            .maybeSingle();
+            
+        res['has_pending'] = existing != null;
+      }
+
       setState(() {
         _foundUser = res;
       });
@@ -120,6 +136,9 @@ class _PartnerSearchScreenState extends State<PartnerSearchScreen> {
       });
       
       if (mounted) {
+        setState(() {
+          if (_foundUser != null) _foundUser!['has_pending'] = true;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Request sent successfully!')),
         );
@@ -137,28 +156,69 @@ class _PartnerSearchScreenState extends State<PartnerSearchScreen> {
     final myId = _supabase.auth.currentUser?.id;
     if (myId == null) return;
 
+    // Show dialog to categorize
+    String? selectedCategory = await showDialog<String>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Categorize Connection'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                title: const Text('Partner ❤️'),
+                onTap: () => Navigator.pop(context, 'partner'),
+              ),
+              ListTile(
+                title: const Text('Friend 👋'),
+                onTap: () => Navigator.pop(context, 'friend'),
+              ),
+              ListTile(
+                title: const Text('Family 🏠'),
+                onTap: () => Navigator.pop(context, 'family'),
+              ),
+            ],
+          ),
+        );
+      }
+    );
+
+    if (selectedCategory == null) return; // User cancelled
+
     try {
-      // 1. Update request status
+      if (selectedCategory == 'partner') {
+        // Check if I already have a partner
+        final existingPartner = await _supabase
+            .from('connection_requests')
+            .select('id')
+            .eq('category', 'partner')
+            .eq('status', 'accepted')
+            .or('sender_id.eq.$myId,receiver_id.eq.$myId')
+            .maybeSingle();
+
+        if (existingPartner != null && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('You already have a Partner!')));
+          return;
+        }
+      }
+
+      // Update request status and category
       await _supabase
           .from('connection_requests')
-          .update({'status': 'accepted'})
+          .update({
+            'status': 'accepted',
+            'category': selectedCategory
+          })
           .eq('id', requestId);
       
-      // 2. Update my profile
-      await _supabase
-          .from('profiles')
-          .update({'partner_id': senderId})
-          .eq('id', myId);
-          
-      // 3. Update their profile
-      await _supabase
-          .from('profiles')
-          .update({'partner_id': myId})
-          .eq('id', senderId);
+      // Update partner_id in profiles just for legacy fallback if they chose partner
+      if (selectedCategory == 'partner') {
+        await _supabase.from('profiles').update({'partner_id': senderId}).eq('id', myId);
+        await _supabase.from('profiles').update({'partner_id': myId}).eq('id', senderId);
+      }
 
-      // Successfully linked! Trigger a reload by updating the wrapper state, 
-      // or simply replacing the screen with HomeScreen.
       if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Connected!')));
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (context) => const HomeScreen()),
         );
@@ -176,120 +236,136 @@ class _PartnerSearchScreenState extends State<PartnerSearchScreen> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return Scaffold(
-      backgroundColor: isDark ? Colors.black : Colors.white,
-      appBar: AppBar(
-        title: const Text('Find Partner', style: TextStyle(fontWeight: FontWeight.bold)),
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
         backgroundColor: isDark ? Colors.black : Colors.white,
-        foregroundColor: isDark ? Colors.white : Colors.black,
-        elevation: 0,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: () => _supabase.auth.signOut(),
-          )
-        ],
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              'Link Accounts',
-              style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Search for your partner\'s username to send them a connection request.',
-              style: TextStyle(color: Colors.grey.shade500, fontSize: 16),
-            ),
-            const SizedBox(height: 32),
-            
-            // Search Bar
-            TextField(
-              controller: _searchController,
-              style: TextStyle(color: isDark ? Colors.white : Colors.black),
-              decoration: InputDecoration(
-                hintText: 'Partner\'s username',
-                hintStyle: TextStyle(color: isDark ? Colors.grey.shade400 : Colors.grey.shade600),
-                prefixIcon: Icon(Icons.search, color: isDark ? Colors.grey.shade400 : Colors.grey.shade600),
-                suffixIcon: _isSearching
-                    ? const Padding(
-                        padding: EdgeInsets.all(12.0),
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : IconButton(
-                        icon: Icon(Icons.arrow_forward, color: isDark ? Colors.grey.shade400 : Colors.grey.shade600),
-                        onPressed: _searchUser,
-                      ),
-                filled: true,
-                fillColor: isDark ? Colors.grey.shade900 : Colors.grey.shade100,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(16),
-                  borderSide: BorderSide.none,
-                ),
-              ),
-              onSubmitted: (_) => _searchUser(),
-            ),
-            
-            const SizedBox(height: 32),
-
-            // Search Result
-            if (_foundUser != null) ...[
-              Text('Search Result', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: isDark ? Colors.white : Colors.black)),
-              const SizedBox(height: 12),
-              Container(
-                decoration: BoxDecoration(
-                  border: Border.all(color: isDark ? Colors.grey.shade800 : Colors.grey.shade200),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: ListTile(
-                  leading: const CircleAvatar(backgroundColor: Colors.pinkAccent, child: Icon(Icons.favorite, color: Colors.white)),
-                  title: Text(_foundUser!['full_name'] ?? _foundUser!['username'], style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
-                  subtitle: Text('@${_foundUser!['username']}', style: TextStyle(color: isDark ? Colors.grey.shade400 : Colors.grey.shade600)),
-                  trailing: ElevatedButton(
-                    onPressed: () => _sendRequest(_foundUser!['id']),
-                    style: ElevatedButton.styleFrom(backgroundColor: isDark ? Colors.white : Colors.black, foregroundColor: isDark ? Colors.black : Colors.white),
-                    child: const Text('Send'),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 32),
+        appBar: AppBar(
+          title: const Text('Connections', style: TextStyle(fontWeight: FontWeight.bold)),
+          backgroundColor: isDark ? Colors.black : Colors.white,
+          foregroundColor: isDark ? Colors.white : Colors.black,
+          elevation: 0,
+          bottom: TabBar(
+            labelColor: Colors.pink,
+            unselectedLabelColor: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+            indicatorColor: Colors.pink,
+            tabs: const [
+              Tab(text: 'Search'),
+              Tab(text: 'Requests'),
             ],
+          ),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.logout),
+              onPressed: () => _supabase.auth.signOut(),
+            )
+          ],
+        ),
+        body: TabBarView(
+          children: [
+            // SEARCH TAB
+            Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    'Find People',
+                    style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Search for usernames to send a connection request.',
+                    style: TextStyle(color: Colors.grey.shade500, fontSize: 16),
+                  ),
+                  const SizedBox(height: 32),
+                  
+                  TextField(
+                    controller: _searchController,
+                    style: TextStyle(color: isDark ? Colors.white : Colors.black),
+                    decoration: InputDecoration(
+                      hintText: 'Username',
+                      hintStyle: TextStyle(color: isDark ? Colors.grey.shade400 : Colors.grey.shade600),
+                      prefixIcon: Icon(Icons.search, color: isDark ? Colors.grey.shade400 : Colors.grey.shade600),
+                      suffixIcon: _isSearching
+                          ? const Padding(
+                              padding: EdgeInsets.all(12.0),
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : IconButton(
+                              icon: Icon(Icons.arrow_forward, color: isDark ? Colors.grey.shade400 : Colors.grey.shade600),
+                              onPressed: _searchUser,
+                            ),
+                      filled: true,
+                      fillColor: isDark ? Colors.grey.shade900 : Colors.grey.shade100,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                    onSubmitted: (_) => _searchUser(),
+                  ),
+                  
+                  const SizedBox(height: 32),
 
-            // Incoming Requests
-            if (_incomingRequests.isNotEmpty) ...[
-              const Text('Incoming Requests', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-              const SizedBox(height: 12),
-              Expanded(
-                child: ListView.separated(
-                  itemCount: _incomingRequests.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 12),
-                  itemBuilder: (context, index) {
-                    final req = _incomingRequests[index];
-                    final profile = req['profiles'];
-                    return Container(
+                  if (_foundUser != null) ...[
+                    Text('Search Result', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: isDark ? Colors.white : Colors.black)),
+                    const SizedBox(height: 12),
+                    Container(
                       decoration: BoxDecoration(
-                        color: Colors.pink.shade50,
-                        border: Border.all(color: Colors.pink.shade100),
+                        border: Border.all(color: isDark ? Colors.grey.shade800 : Colors.grey.shade200),
                         borderRadius: BorderRadius.circular(16),
                       ),
                       child: ListTile(
-                        leading: const CircleAvatar(backgroundColor: Colors.pink, child: Icon(Icons.person, color: Colors.white)),
-                        title: Text(profile['full_name'] ?? profile['username'], style: const TextStyle(fontWeight: FontWeight.bold)),
-                        subtitle: Text('@${profile['username']} wants to connect!'),
+                        leading: const CircleAvatar(backgroundColor: Colors.pinkAccent, child: Icon(Icons.person, color: Colors.white)),
+                        title: Text(_foundUser!['full_name'] ?? _foundUser!['username'], style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
+                        subtitle: Text('@${_foundUser!['username']}', style: TextStyle(color: isDark ? Colors.grey.shade400 : Colors.grey.shade600)),
                         trailing: ElevatedButton(
-                          onPressed: () => _acceptRequest(req['id'], req['sender_id']),
-                          style: ElevatedButton.styleFrom(backgroundColor: Colors.pink, foregroundColor: Colors.white),
-                          child: const Text('Accept'),
+                          onPressed: _foundUser!['has_pending'] == true ? null : () => _sendRequest(_foundUser!['id']),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _foundUser!['has_pending'] == true ? Colors.grey : (isDark ? Colors.white : Colors.black), 
+                            foregroundColor: _foundUser!['has_pending'] == true ? Colors.white : (isDark ? Colors.black : Colors.white)
+                          ),
+                          child: Text(_foundUser!['has_pending'] == true ? 'Sent' : 'Send'),
                         ),
                       ),
-                    );
-                  },
-                ),
+                    ),
+                  ],
+                ],
               ),
-            ],
+            ),
+
+            // REQUESTS TAB
+            _incomingRequests.isEmpty 
+              ? Center(child: Text("No pending requests.", style: TextStyle(color: Colors.grey.shade500)))
+              : Padding(
+                  padding: const EdgeInsets.all(24.0),
+                  child: ListView.separated(
+                    itemCount: _incomingRequests.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 12),
+                    itemBuilder: (context, index) {
+                      final req = _incomingRequests[index];
+                      final profile = req['profiles'];
+                      return Container(
+                        decoration: BoxDecoration(
+                          color: isDark ? Colors.grey.shade900 : Colors.pink.shade50,
+                          border: Border.all(color: isDark ? Colors.grey.shade800 : Colors.pink.shade100),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: ListTile(
+                          leading: const CircleAvatar(backgroundColor: Colors.pink, child: Icon(Icons.person, color: Colors.white)),
+                          title: Text(profile['full_name'] ?? profile['username'], style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
+                          subtitle: Text('@${profile['username']} wants to connect!', style: TextStyle(color: isDark ? Colors.grey.shade400 : Colors.black87)),
+                          trailing: ElevatedButton(
+                            onPressed: () => _acceptRequest(req['id'], req['sender_id']),
+                            style: ElevatedButton.styleFrom(backgroundColor: Colors.pink, foregroundColor: Colors.white),
+                            child: const Text('Accept'),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
           ],
         ),
       ),
