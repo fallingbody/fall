@@ -34,6 +34,7 @@ class _ChatScreenState extends State<ChatScreen> {
   types.Message? _replyToMessage;
   types.Message? _editingMessage;
   bool _isEditing = false;
+  RealtimeChannel? _chatChannel;
 
   // Real-time status data
   Timer? _statusTimer;
@@ -48,6 +49,21 @@ class _ChatScreenState extends State<ChatScreen> {
     _initUsers();
     _checkSupabase();
     _startStatusTracking();
+    _setupChatChannel();
+  }
+
+  void _setupChatChannel() {
+    if (widget.connection == null) return;
+    final connId = widget.connection!['connection_id'];
+    _chatChannel = Supabase.instance.client.channel('chat_$connId');
+    
+    _chatChannel!.onBroadcast(event: 'read_receipt', callback: (payload) {
+      final messageId = payload['message_id'];
+      if (messageId != null) {
+        LocalDbService().updateMessageStatus(messageId, 'seen');
+        _loadLocalMessages(); // Reload UI
+      }
+    }).subscribe();
   }
 
   @override
@@ -242,18 +258,19 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
-  void _sendSeenReceipt(String targetMsgId) async {
+  Future<void> _sendSeenReceipt(String messageId) async {
     try {
-      await Supabase.instance.client.from('messages').insert({
-        'id': const Uuid().v4(),
-        'author_id': _user.id,
-        'receiver_id': _partner.id,
-        'text': 'RECEIPT_SEEN:$targetMsgId',
-        'status': 'sent',
-        'created_at': DateTime.now().toUtc().toIso8601String(),
-      });
+      await Supabase.instance.client
+          .from('messages')
+          .update({'status': 'seen'})
+          .eq('id', messageId);
+
+      _chatChannel?.sendBroadcastMessage(
+        event: 'read_receipt',
+        payload: {'message_id': messageId},
+      );
     } catch (e) {
-      debugPrint('Error sending seen receipt: $e');
+      debugPrint('Error updating seen status: $e');
     }
   }
 

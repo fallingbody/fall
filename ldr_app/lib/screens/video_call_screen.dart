@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:livekit_client/livekit_client.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:flutter_background/flutter_background.dart';
 import '../services/livekit_service.dart';
 
 class VideoCallScreen extends StatefulWidget {
@@ -163,10 +164,34 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     setState(() => _speakerOn = nextState);
   }
 
+  Future<bool> _ensureForegroundService() async {
+    if (WebRTC.platformIsAndroid) {
+      final hasPermissions = await FlutterBackground.hasPermissions;
+      if (!hasPermissions) {
+        final config = const FlutterBackgroundAndroidConfig(
+          notificationTitle: 'Screen Sharing',
+          notificationText: 'Your screen is currently being shared.',
+          notificationImportance: AndroidNotificationImportance.normal,
+          notificationIcon: AndroidResource(name: 'ic_launcher', defType: 'mipmap'),
+        );
+        await FlutterBackground.initialize(androidConfig: config);
+      }
+      return await FlutterBackground.enableBackgroundExecution();
+    }
+    return true;
+  }
+
   void _toggleScreenShare() async {
     if (_room.localParticipant == null) return;
     bool nextState = !_isScreenSharing;
     try {
+      if (nextState) {
+        final bgSuccess = await _ensureForegroundService();
+        if (!bgSuccess) {
+          throw Exception('Failed to start foreground service. Please grant permissions.');
+        }
+      }
+
       await _room.localParticipant!.setScreenShareEnabled(nextState, captureScreenAudio: true);
       
       // Fix Browser Audio Ducking on Android:
@@ -182,6 +207,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
           );
         } else {
           await Helper.setAndroidAudioConfiguration(AndroidAudioConfiguration.communication);
+          await FlutterBackground.disableBackgroundExecution();
         }
       }
       
