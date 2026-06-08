@@ -216,11 +216,10 @@ class _HomeScreenState extends State<HomeScreen> {
       callerName = callerRes['full_name'] ?? callerRes['username'] ?? 'Partner';
     } catch (_) {}
 
-    final callKitParams = CallKitParams(
-      id: roomId, // Use roomId so actionCallAccept has the correct room
+    CallKitParams callKitParams = CallKitParams(
+      id: roomId, // Send the explicit roomId!
       nameCaller: callerName,
       appName: 'fall',
-      avatar: 'https://i.pravatar.cc/100', // Placeholder
       handle: isVideo ? 'Video Call' : 'Audio Call',
       type: isVideo ? 1 : 0, // 0 = audio, 1 = video
       duration: 45000,
@@ -229,8 +228,7 @@ class _HomeScreenState extends State<HomeScreen> {
         isCustomNotification: true,
         isShowLogo: false,
         ringtonePath: 'system_ringtone_default',
-        backgroundColor: '#E91E63', // Pinkish
-        backgroundUrl: 'https://i.pravatar.cc/500',
+        backgroundColor: '#E91E63',
         actionColor: '#4CAF50',
       ),
       ios: IOSParams(

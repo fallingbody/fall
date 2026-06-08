@@ -45,7 +45,6 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
       id: roomId, // Use roomId directly so actionCallAccept has it
       nameCaller: callerName,
       appName: 'fall',
-      avatar: 'https://i.pravatar.cc/100', // Placeholder
       handle: isVideo ? 'Video Call' : 'Audio Call',
       type: isVideo ? 1 : 0, // 0 = audio, 1 = video
       duration: 45000,
@@ -55,7 +54,6 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
         isShowLogo: false,
         ringtonePath: 'system_ringtone_default',
         backgroundColor: '#E91E63', // Pinkish
-        backgroundUrl: 'https://i.pravatar.cc/500',
         actionColor: '#4CAF50',
       ),
       ios: IOSParams(
