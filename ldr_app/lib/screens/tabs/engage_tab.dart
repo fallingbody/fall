@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import '../partner_search_screen.dart';
 
 class EngageTab extends StatefulWidget {
@@ -155,9 +156,9 @@ class _EngageTabState extends State<EngageTab> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
-                  _buildQuickAction(Icons.emoji_events, 'Achievements', Colors.amber, isDark),
-                  _buildQuickAction(Icons.extension, 'Mini Games', Colors.orange, isDark),
-                  _buildQuickAction(Icons.photo_library, 'Memories', Colors.purple, isDark),
+                  _buildQuickAction(_svgAchievements, 'Achievements', Colors.amber, isDark),
+                  _buildQuickAction(_svgMinigames, 'Mini Games', Colors.orange, isDark),
+                  _buildQuickAction(_svgMemories, 'Memories', Colors.purple, isDark),
                 ],
               ),
             ),
@@ -192,17 +193,16 @@ class _EngageTabState extends State<EngageTab> {
                   final conn = _connections[index];
                   final profile = conn['profile'];
                   final category = conn['category'] as String;
-                  
-                  IconData icon;
+                  String svgIcon;
                   Color iconColor;
                   if (category == 'partner') {
-                    icon = Icons.favorite;
+                    svgIcon = _svgPartner;
                     iconColor = Colors.pinkAccent;
                   } else if (category == 'family') {
-                    icon = Icons.home;
+                    svgIcon = _svgFamily;
                     iconColor = Colors.orangeAccent;
                   } else {
-                    icon = Icons.group;
+                    svgIcon = _svgFriends;
                     iconColor = Colors.blueAccent;
                   }
 
@@ -219,8 +219,8 @@ class _EngageTabState extends State<EngageTab> {
                         children: [
                           CircleAvatar(
                             radius: 30,
-                            backgroundColor: iconColor,
-                            child: Icon(icon, color: Colors.white, size: 30),
+                            backgroundColor: iconColor.withOpacity(0.2),
+                            child: SvgPicture.string(svgIcon, width: 30, height: 30),
                           ),
                           const SizedBox(width: 16),
                           Expanded(
@@ -271,10 +271,30 @@ class _EngageTabState extends State<EngageTab> {
           child: Icon(icon, color: color, size: 28),
         ),
         const SizedBox(height: 6),
-        Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: isDark ? Colors.white : Colors.black)),
+  Widget _buildQuickAction(String svgString, String label, Color color, bool isDark) {
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.1),
+            shape: BoxShape.circle,
+          ),
+          child: SvgPicture.string(svgString, width: 28, height: 28),
+        ),
+        const SizedBox(height: 8),
+        Text(label, style: TextStyle(color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.w500)),
       ],
     );
   }
+
+  // SVG Constants
+  static const String _svgPartner = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#FF4081"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>';
+  static const String _svgFamily = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#FFB300"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>';
+  static const String _svgFriends = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#448AFF"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>';
+  static const String _svgAchievements = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#FFC107"><path d="M19 5h-2V3H7v2H5c-1.1 0-2 .9-2 2v1c0 2.55 1.92 4.63 4.39 4.94A5.01 5.01 0 0011 15.9V19H7v2h10v-2h-4v-3.1a5.01 5.01 0 003.61-2.96C19.08 12.63 21 10.55 21 8V7c0-1.1-.9-2-2-2zM7 10.82C5.84 10.4 5 9.3 5 8 V7h2v3.82zM19 8c0 1.3-.84 2.4-2 2.82V7h2v1z"/></svg>';
+  static const String _svgMinigames = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#FF5722"><path d="M21 6H3c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-10 7H8v3H6v-3H3v-2h3V8h2v3h3v2zm4.5 2c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm3-3c-.83 0-1.5-.67-1.5-1.5S17.67 9 18.5 9s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg>';
+  static const String _svgMemories = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#9C27B0"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>';
 
   Widget _buildStoryItem(IconData icon, String label, Color color, bool isDark) {
     return Column(

@@ -38,6 +38,20 @@ class LocalDbService {
     }
   }
 
+  /// Update the text of an existing message
+  Future<void> editMessageText(String id, String newText) async {
+    try {
+      final message = _messagesBox.get(id);
+      if (message != null) {
+        final updatedMessage = Map<String, dynamic>.from(message.map((key, value) => MapEntry(key.toString(), value)));
+        updatedMessage['text'] = newText;
+        await _messagesBox.put(id, updatedMessage);
+      }
+    } catch (e) {
+      debugPrint('Error editing message text locally: $e');
+    }
+  }
+
   /// Listen to changes in the local database
   Stream<BoxEvent> watchMessages() {
     return _messagesBox.watch();

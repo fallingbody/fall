@@ -60,13 +60,22 @@ class _HomeScreenState extends State<HomeScreen> {
           _processedMessages.add(msgId);
           final text = row['text'].toString();
 
-          // 1. Check if it's a control message (Receipt)
+          // 1. Check if it's a control message (Receipt or Sync)
           if (text.startsWith('RECEIPT_DELIVERED:')) {
             final targetMsgId = text.substring(18);
             await LocalDbService().updateMessageStatus(targetMsgId, 'delivered');
           } else if (text.startsWith('RECEIPT_SEEN:')) {
             final targetMsgId = text.substring(13);
             await LocalDbService().updateMessageStatus(targetMsgId, 'seen');
+          } else if (text.startsWith('DELETE_MESSAGE:')) {
+            final targetMsgId = text.substring(15);
+            await LocalDbService().deleteMessage(targetMsgId);
+          } else if (text.startsWith('EDIT_MESSAGE:')) {
+            final payload = text.substring(13);
+            final parts = payload.split('|:');
+            if (parts.length == 2) {
+              await LocalDbService().editMessageText(parts[0], parts[1]);
+            }
           } else {
             // Handle incoming calls
             if (text.startsWith('CALL_INVITE_')) {

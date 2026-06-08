@@ -261,13 +261,25 @@ class _ChatScreenState extends State<ChatScreen> {
     // --- EDIT MODE ---
     if (_isEditing && _editingMessage != null) {
       final editedId = _editingMessage!.id;
+      final newText = message.text;
+
       await LocalDbService().saveMessage({
         'id': editedId,
         'author_id': _user.id,
         'receiver_id': _partner.id,
-        'text': message.text,
+        'text': newText,
         'status': 'sent',
         'created_at': DateTime.fromMillisecondsSinceEpoch(_editingMessage!.createdAt ?? 0).toUtc().toIso8601String(),
+      });
+
+      // Send sync to partner
+      await Supabase.instance.client.from('messages').insert({
+        'id': const Uuid().v4(),
+        'author_id': _user.id,
+        'receiver_id': _partner.id,
+        'text': 'EDIT_MESSAGE:$editedId|:$newText',
+        'status': 'sent',
+        'created_at': DateTime.now().toUtc().toIso8601String(),
       });
       setState(() {
         _isEditing = false;
@@ -428,6 +440,16 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _deleteMessage(types.Message message) async {
     await LocalDbService().deleteMessage(message.id);
+
+    // Send sync to partner
+    await Supabase.instance.client.from('messages').insert({
+      'id': const Uuid().v4(),
+      'author_id': _user.id,
+      'receiver_id': _partner.id,
+      'text': 'DELETE_MESSAGE:${message.id}',
+      'status': 'sent',
+      'created_at': DateTime.now().toUtc().toIso8601String(),
+    });
     _loadLocalMessages();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(

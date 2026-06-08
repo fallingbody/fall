@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:livekit_client/livekit_client.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
@@ -31,14 +32,16 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   late bool _videoMuted;
   late bool _speakerOn;
   bool _isScreenSharing = false;
+  late bool _isVideoMode;
 
   Participant? _remoteParticipant;
 
   @override
   void initState() {
     super.initState();
-    _videoMuted = !widget.isVideoCall;
-    _speakerOn = widget.isVideoCall;
+    _isVideoMode = widget.isVideoCall;
+    _videoMuted = !_isVideoMode;
+    _speakerOn = _isVideoMode;
     _connect();
   }
 
@@ -71,12 +74,28 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
           setState(() {});
         } else if (event is LocalTrackUnpublishedEvent) {
           setState(() {});
+        } else if (event is DataReceivedEvent) {
+          try {
+            final payload = utf8.decode(event.data);
+            if (payload == 'VIDEO_REQUEST') {
+              _showVideoRequestDialog();
+            } else if (payload == 'VIDEO_ACCEPT') {
+              setState(() {
+                _isVideoMode = true;
+              });
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Partner accepted video request!')));
+              }
+            }
+          } catch (e) {
+            debugPrint('Error parsing data channel: $e');
+          }
         }
       });
 
       await _room.connect(url, token);
       
-      await _room.localParticipant?.setCameraEnabled(widget.isVideoCall);
+      await _room.localParticipant?.setCameraEnabled(_isVideoMode);
       await _room.localParticipant?.setMicrophoneEnabled(true);
       await Hardware.instance.setSpeakerphoneOn(_speakerOn);
 
@@ -113,6 +132,16 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
 
   void _toggleVideo() async {
     if (_room.localParticipant == null) return;
+    
+    // If in audio mode and turning on video, send request instead of forcing
+    if (!_isVideoMode && _videoMuted) {
+      await _room.localParticipant?.publishData(utf8.encode('VIDEO_REQUEST'), reliability: Reliability.reliable);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sent video request to partner...')));
+      }
+      return;
+    }
+
     bool nextState = !_videoMuted;
     await _room.localParticipant!.setCameraEnabled(nextState);
     
@@ -137,27 +166,35 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   void _toggleScreenShare() async {
     if (_room.localParticipant == null) return;
     bool nextState = !_isScreenSharing;
-    await _room.localParticipant!.setScreenShareEnabled(nextState, captureScreenAudio: true);
-    
-    // Fix Browser Audio Ducking on Android:
-    // When screen sharing starts, we tell Android we are in "normal" media mode and stop forcing Audio Focus.
-    // This allows Chrome/YouTube to play their audio simultaneously without being muted by the OS.
-    if (WebRTC.platformIsAndroid) {
-      if (nextState) {
-        await Helper.setAndroidAudioConfiguration(
-          AndroidAudioConfiguration(
-            manageAudioFocus: false,
-            androidAudioMode: AndroidAudioMode.normal,
-            androidAudioAttributesUsageType: AndroidAudioAttributesUsageType.media,
-            androidAudioStreamType: AndroidAudioStreamType.music,
-          ),
-        );
-      } else {
-        await Helper.setAndroidAudioConfiguration(AndroidAudioConfiguration.communication);
+    try {
+      await _room.localParticipant!.setScreenShareEnabled(nextState, captureScreenAudio: true);
+      
+      // Fix Browser Audio Ducking on Android:
+      if (WebRTC.platformIsAndroid) {
+        if (nextState) {
+          await Helper.setAndroidAudioConfiguration(
+            AndroidAudioConfiguration(
+              manageAudioFocus: false,
+              androidAudioMode: AndroidAudioMode.normal,
+              androidAudioAttributesUsageType: AndroidAudioAttributesUsageType.media,
+              androidAudioStreamType: AndroidAudioStreamType.music,
+            ),
+          );
+        } else {
+          await Helper.setAndroidAudioConfiguration(AndroidAudioConfiguration.communication);
+        }
+      }
+      
+      setState(() => _isScreenSharing = nextState);
+    } catch (e) {
+      debugPrint('Error toggling screen share: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Could not share screen: $e'),
+          backgroundColor: Colors.redAccent,
+        ));
       }
     }
-    
-    setState(() => _isScreenSharing = nextState);
   }
 
   @override
@@ -202,7 +239,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       body: Stack(
         children: [
           // Background for Audio Call
-          if (!widget.isVideoCall && remoteVideoTrack == null)
+          if (!_isVideoMode && remoteVideoTrack == null)
             Positioned.fill(
               child: Container(
                 decoration: BoxDecoration(
@@ -247,7 +284,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
             ),
 
           // Local Video (PiP)
-          if (localVideoTrack != null && !_videoMuted && widget.isVideoCall)
+          if (localVideoTrack != null && !_videoMuted && _isVideoMode)
             Positioned(
               right: 20,
               top: 60,
@@ -322,6 +359,35 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         height: size,
         decoration: BoxDecoration(shape: BoxShape.circle, color: color),
         child: Icon(icon, color: Colors.white, size: iconSize),
+      ),
+    );
+  }
+
+  void _showVideoRequestDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Video Request'),
+        content: Text('${widget.participantName} wants to turn on their camera.'),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+            },
+            child: const Text('Deny', style: TextStyle(color: Colors.red)),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _room.localParticipant?.publishData(utf8.encode('VIDEO_ACCEPT'), reliability: Reliability.reliable);
+              setState(() {
+                _isVideoMode = true;
+              });
+            },
+            child: const Text('Accept', style: TextStyle(color: Colors.green)),
+          ),
+        ],
       ),
     );
   }

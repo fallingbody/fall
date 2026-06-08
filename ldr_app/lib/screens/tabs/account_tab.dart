@@ -46,12 +46,7 @@ class AccountTab extends StatelessWidget {
           ),
         ),
         const Divider(),
-        ListTile(
-          leading: const Icon(Icons.emoji_events_outlined, color: Colors.black),
-          title: const Text('Achievements', style: TextStyle(fontWeight: FontWeight.w500)),
-          trailing: const Icon(Icons.chevron_right, color: Colors.grey),
-          onTap: () {},
-        ),
+
         ListTile(
           leading: const Icon(Icons.settings_outlined, color: Colors.black),
           title: const Text('Settings & Privacy', style: TextStyle(fontWeight: FontWeight.w500)),
