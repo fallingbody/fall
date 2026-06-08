@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import 'screens/auth_wrapper.dart';
 import 'screens/chat_screen.dart';
+import 'services/local_db_service.dart';
 import 'screens/calendar_screen.dart';
 import 'screens/memories_screen.dart';
 import 'screens/call_screen.dart';
@@ -31,6 +32,9 @@ void main() async {
       anonKey: supabaseAnonKey,
     );
   }
+
+  // Initialize local database
+  await LocalDbService().init();
 
   runApp(const LdrApp());
 }

@@ -8,7 +8,7 @@ import 'partner_search_screen.dart';
 import '../services/status_service.dart';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'dart:async';
+import '../services/local_db_service.dart';
 import 'video_call_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -20,7 +20,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
-  StreamSubscription<List<Map<String, dynamic>>>? _messageSub;
+  RealtimeChannel? _globalChannel;
   final Set<String> _processedCalls = {};
 
   @override
@@ -34,28 +34,34 @@ class _HomeScreenState extends State<HomeScreen> {
     final myId = Supabase.instance.client.auth.currentUser?.id;
     if (myId == null) return;
 
-    _messageSub = Supabase.instance.client
-        .from('messages')
-        .stream(primaryKey: ['id'])
-        .listen((data) {
-      for (var row in data) {
-        if (row['receiver_id'] == myId && row['text'].toString().startsWith('CALL_INVITE_')) {
-          // Check if it's recent (last 45 seconds) to avoid old calls popping up
-          String createdAtStr = row['created_at'].toString();
-          if (!createdAtStr.endsWith('Z') && !createdAtStr.contains('+')) {
-            createdAtStr += 'Z';
-          }
-          final createdAt = DateTime.parse(createdAtStr).toUtc();
-          
-          if (DateTime.now().toUtc().difference(createdAt).inSeconds < 45) {
-            if (!_processedCalls.contains(row['id'])) {
-              _processedCalls.add(row['id']);
-              _showIncomingCall(row);
+    _globalChannel = Supabase.instance.client.channel('user_$myId');
+    _globalChannel!.onBroadcast(
+      event: 'message',
+      callback: (payload) {
+        final row = Map<String, dynamic>.from(payload);
+        
+        // Always save incoming messages to local disk immediately!
+        if (row['receiver_id'] == myId) {
+          LocalDbService().saveMessage(row);
+
+          // Handle incoming calls
+          if (row['text'].toString().startsWith('CALL_INVITE_')) {
+            String createdAtStr = row['created_at'].toString();
+            if (!createdAtStr.endsWith('Z') && !createdAtStr.contains('+')) {
+              createdAtStr += 'Z';
+            }
+            final createdAt = DateTime.parse(createdAtStr).toUtc();
+            
+            if (DateTime.now().toUtc().difference(createdAt).inSeconds < 45) {
+              if (!_processedCalls.contains(row['id'])) {
+                _processedCalls.add(row['id']);
+                _showIncomingCall(row);
+              }
             }
           }
         }
       }
-    });
+    ).subscribe();
   }
 
   void _showIncomingCall(Map<String, dynamic> row) async {
@@ -114,7 +120,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
-    _messageSub?.cancel();
+    _globalChannel?.unsubscribe();
     StatusService().stopSync();
     super.dispose();
   }

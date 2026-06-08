@@ -8,6 +8,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'video_call_screen.dart';
 import 'map_screen.dart';
+import '../services/local_db_service.dart';
 
 class ChatScreen extends StatefulWidget {
   final Map<String, dynamic>? connection;
@@ -23,6 +24,7 @@ class _ChatScreenState extends State<ChatScreen> {
   
   late types.User _user;
   late types.User _partner;
+  StreamSubscription? _localDbSub;
 
   // Real-time status data
   Timer? _statusTimer;
@@ -42,6 +44,7 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void dispose() {
     _statusTimer?.cancel();
+    _localDbSub?.cancel();
     super.dispose();
   }
 
@@ -134,82 +137,92 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _checkSupabase() async {
     try {
-      final client = Supabase.instance.client;
       if (mounted) {
         setState(() {});
       }
-      _listenToMessages(client);
+      _listenToMessages();
     } catch (e) {
       debugPrint('Error configuring Supabase stream: $e');
     }
   }
 
-  void _listenToMessages(SupabaseClient client) {
-    client
-        .from('messages')
-        .stream(primaryKey: ['id'])
-        .order('created_at', ascending: false) // flutter_chat_ui wants newest first
-        .listen((List<Map<String, dynamic>> data) {
-      
-      // Filter strictly for this connection (messages sent by me to them, or them to me)
-      final filteredData = data.where((row) => 
-          (row['author_id'] == _user.id && row['receiver_id'] == _partner.id) || 
-          (row['author_id'] == _partner.id && row['receiver_id'] == _user.id)).toList();
+  void _loadLocalMessages() {
+    final localData = LocalDbService().getMessagesForConnection(_user.id, _partner.id);
+    
+    final mappedMessages = localData.map((row) {
+      types.Status msgStatus = types.Status.sent;
+      if (row['status'] == 'seen') {
+        msgStatus = types.Status.seen;
+      } else if (row['status'] == 'delivered') {
+        msgStatus = types.Status.delivered;
+      }
 
-      final mappedMessages = filteredData.map((row) {
-        types.Status msgStatus = types.Status.sent;
-        if (row['status'] == 'seen') {
-          msgStatus = types.Status.seen;
-        } else if (row['status'] == 'delivered') {
-          msgStatus = types.Status.delivered;
-        }
+      String createdAtStr = row['created_at'].toString();
+      if (!createdAtStr.endsWith('Z') && !createdAtStr.contains('+')) {
+        createdAtStr += 'Z';
+      }
+      final dt = DateTime.parse(createdAtStr).toUtc();
 
-        // Convert the Postgres timestamp to UTC securely so chat UI maps it to local correctly
-        String createdAtStr = row['created_at'] as String;
-        if (!createdAtStr.endsWith('Z') && !createdAtStr.contains('+')) {
-          createdAtStr += 'Z'; // Force UTC parsing if Supabase dropped timezone info entirely
-        }
-        final dt = DateTime.parse(createdAtStr).toUtc();
-
-        // Do not render call invites as text messages
-        if (row['text'].toString().startsWith('CALL_INVITE_')) {
-          return types.CustomMessage(
-            id: row['id'],
-            author: row['author_id'] == _user.id ? _user : _partner,
-            createdAt: dt.millisecondsSinceEpoch,
-            status: msgStatus,
-            metadata: {'type': 'call_invite'},
-          );
-        }
-
-        return types.TextMessage(
+      if (row['text'].toString().startsWith('CALL_INVITE_')) {
+        return types.CustomMessage(
           id: row['id'],
           author: row['author_id'] == _user.id ? _user : _partner,
           createdAt: dt.millisecondsSinceEpoch,
           status: msgStatus,
-          text: row['text'],
+          metadata: {'type': 'call_invite'},
         );
-      }).toList();
+      }
 
+      return types.TextMessage(
+        id: row['id'],
+        author: row['author_id'] == _user.id ? _user : _partner,
+        createdAt: dt.millisecondsSinceEpoch,
+        status: msgStatus,
+        text: row['text'],
+      );
+    }).toList();
+
+    if (mounted) {
+      setState(() {
+        _messages = mappedMessages;
+      });
+    }
+  }
+
+  void _listenToMessages() {
+    _loadLocalMessages();
+
+    // Listen to local DB changes (powered by the global home_screen daemon!)
+    _localDbSub = LocalDbService().watchMessages().listen((event) {
       if (mounted) {
-        setState(() {
-          _messages = mappedMessages;
-        });
+        _loadLocalMessages();
       }
     });
   }
 
   void _handleSendPressed(types.PartialText message) async {
     try {
-      await Supabase.instance.client.from('messages').insert({
+      final msgData = {
         'id': const Uuid().v4(),
         'author_id': _user.id,
         'receiver_id': _partner.id,
         'text': message.text,
         'status': 'sent',
-        // Send strictly as UTC to sync globally
         'created_at': DateTime.now().toUtc().toIso8601String(),
-      });
+      };
+
+      // 1. Save to local disk immediately
+      await LocalDbService().saveMessage(msgData);
+
+      // 2. Blast it ephemerally over Supabase Realtime Broadcast to the partner's global channel
+      Supabase.instance.client.channel('user_${_partner.id}').sendBroadcastMessage(
+        event: 'message',
+        payload: msgData,
+      );
+
+      // 3. Update UI
+      _loadLocalMessages();
+
     } catch (e) {
       debugPrint('Error sending message: $e');
       if (mounted) {
@@ -345,14 +358,18 @@ class _ChatScreenState extends State<ChatScreen> {
                         onPressed: () async {
                           if (widget.connection == null) return;
                           
-                          await Supabase.instance.client.from('messages').insert({
+                          final callData = {
                             'id': const Uuid().v4(),
                             'author_id': _user.id,
                             'receiver_id': _partner.id,
                             'text': 'CALL_INVITE_VIDEO:${widget.connection!["connection_id"]}',
                             'status': 'sent',
                             'created_at': DateTime.now().toUtc().toIso8601String(),
-                          });
+                          };
+
+                          await LocalDbService().saveMessage(callData);
+                          Supabase.instance.client.channel('user_${_partner.id}').sendBroadcastMessage(event: 'message', payload: callData);
+                          _loadLocalMessages();
 
                           if (context.mounted) {
                             Navigator.push(context, MaterialPageRoute(builder: (context) => VideoCallScreen(
@@ -371,14 +388,18 @@ class _ChatScreenState extends State<ChatScreen> {
                         onPressed: () async {
                           if (widget.connection == null) return;
                           
-                          await Supabase.instance.client.from('messages').insert({
+                          final callData = {
                             'id': const Uuid().v4(),
                             'author_id': _user.id,
                             'receiver_id': _partner.id,
                             'text': 'CALL_INVITE_AUDIO:${widget.connection!["connection_id"]}',
                             'status': 'sent',
                             'created_at': DateTime.now().toUtc().toIso8601String(),
-                          });
+                          };
+
+                          await LocalDbService().saveMessage(callData);
+                          Supabase.instance.client.channel('user_${_partner.id}').sendBroadcastMessage(event: 'message', payload: callData);
+                          _loadLocalMessages();
 
                           if (context.mounted) {
                             Navigator.push(context, MaterialPageRoute(builder: (context) => VideoCallScreen(
