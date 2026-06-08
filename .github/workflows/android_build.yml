@@ -32,6 +32,9 @@ jobs:
         run: |
           echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" > .env
           echo "SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}" >> .env
+          echo "LIVEKIT_URL=${{ secrets.LIVEKIT_URL }}" >> .env
+          echo "LIVEKIT_API_KEY=${{ secrets.LIVEKIT_API_KEY }}" >> .env
+          echo "LIVEKIT_API_SECRET=${{ secrets.LIVEKIT_API_SECRET }}" >> .env
 
       - name: Install Dependencies
         working-directory: ./ldr_app
