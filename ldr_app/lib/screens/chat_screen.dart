@@ -933,12 +933,13 @@ class _ChatScreenState extends State<ChatScreen> {
         },
         theme: DefaultChatTheme(
           primaryColor: Colors.pink, // Fixes white on white blending! Solid vibrant color!
+          secondaryColor: isDark ? Colors.grey.shade800 : const Color(0xFFF5F5F5),
           backgroundColor: isDark ? Colors.black : Colors.white,
           inputBackgroundColor: isDark ? Colors.grey.shade900 : const Color(0xFFF5F5F5),
           inputTextColor: isDark ? Colors.white : Colors.black,
           sendButtonIcon: Icon(Icons.send, color: isDark ? Colors.white : Colors.black),
-          seenIcon: const Text('✓✓', style: TextStyle(color: Colors.blue, fontSize: 10)),
-          deliveredIcon: const Text('✓✓', style: TextStyle(color: Colors.grey, fontSize: 10)),
+          seenIcon: const SizedBox.shrink(),
+          deliveredIcon: const SizedBox.shrink(),
         ),
       ),
     );
