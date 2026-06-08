@@ -2,7 +2,7 @@ import 'package:dart_jsonwebtoken/dart_jsonwebtoken.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class LiveKitService {
-  static String generateToken({required String roomName, required String participantName}) {
+  static String generateToken({required String roomName, required String participantName, required String participantId}) {
     final apiKey = dotenv.env['LIVEKIT_API_KEY'];
     final apiSecret = dotenv.env['LIVEKIT_API_SECRET'];
 
@@ -19,7 +19,7 @@ class LiveKitService {
         }
       },
       issuer: apiKey,
-      subject: participantName, // Need a unique ID here ideally, but name is fine for test
+      subject: participantId,
     );
 
     // LiveKit tokens must have a valid exp (e.g. 2 hours) and nbf

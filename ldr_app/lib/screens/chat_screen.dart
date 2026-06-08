@@ -10,7 +10,8 @@ import 'video_call_screen.dart';
 import 'map_screen.dart';
 import '../services/local_db_service.dart';
 import 'package:image_picker/image_picker.dart';
-import 'dart:io';
+import 'package:intl/intl.dart';
+import 'package:flutter/services.dart';
 
 class ChatScreen extends StatefulWidget {
   final Map<String, dynamic>? connection;
@@ -27,6 +28,12 @@ class _ChatScreenState extends State<ChatScreen> {
   late types.User _user;
   late types.User _partner;
   StreamSubscription? _localDbSub;
+  final TextEditingController _textController = TextEditingController();
+
+  // Reply & Edit state
+  types.Message? _replyToMessage;
+  types.Message? _editingMessage;
+  bool _isEditing = false;
 
   // Real-time status data
   Timer? _statusTimer;
@@ -47,6 +54,7 @@ class _ChatScreenState extends State<ChatScreen> {
   void dispose() {
     _statusTimer?.cancel();
     _localDbSub?.cancel();
+    _textController.dispose();
     super.dispose();
   }
 
@@ -159,6 +167,12 @@ class _ChatScreenState extends State<ChatScreen> {
         msgStatus = types.Status.delivered;
       }
 
+      if (row['author_id'] == _partner.id && row['status'] != 'seen') {
+        _sendSeenReceipt(row['id']);
+        LocalDbService().updateMessageStatus(row['id'], 'seen');
+        msgStatus = types.Status.seen;
+      }
+
       String createdAtStr = row['created_at'].toString();
       if (!createdAtStr.endsWith('Z') && !createdAtStr.contains('+')) {
         createdAtStr += 'Z';
@@ -228,13 +242,62 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
+  void _sendSeenReceipt(String targetMsgId) async {
+    try {
+      await Supabase.instance.client.from('messages').insert({
+        'id': const Uuid().v4(),
+        'author_id': _user.id,
+        'receiver_id': _partner.id,
+        'text': 'RECEIPT_SEEN:$targetMsgId',
+        'status': 'sent',
+        'created_at': DateTime.now().toUtc().toIso8601String(),
+      });
+    } catch (e) {
+      debugPrint('Error sending seen receipt: $e');
+    }
+  }
+
   void _handleSendPressed(types.PartialText message) async {
+    // --- EDIT MODE ---
+    if (_isEditing && _editingMessage != null) {
+      final editedId = _editingMessage!.id;
+      await LocalDbService().saveMessage({
+        'id': editedId,
+        'author_id': _user.id,
+        'receiver_id': _partner.id,
+        'text': message.text,
+        'status': 'sent',
+        'created_at': DateTime.fromMillisecondsSinceEpoch(_editingMessage!.createdAt ?? 0).toUtc().toIso8601String(),
+      });
+      setState(() {
+        _isEditing = false;
+        _editingMessage = null;
+      });
+      _loadLocalMessages();
+      return;
+    }
+
+    // --- REPLY MODE ---
+    String text = message.text;
+    if (_replyToMessage != null) {
+      String replyPreview = '';
+      if (_replyToMessage is types.TextMessage) {
+        replyPreview = (_replyToMessage as types.TextMessage).text;
+      } else {
+        replyPreview = 'media';
+      }
+      // Truncate to 50 chars
+      if (replyPreview.length > 50) replyPreview = '${replyPreview.substring(0, 50)}...';
+      text = '[REPLY:$replyPreview]\n$text';
+      setState(() => _replyToMessage = null);
+    }
+
     try {
       final msgData = {
         'id': const Uuid().v4(),
         'author_id': _user.id,
         'receiver_id': _partner.id,
-        'text': message.text,
+        'text': text,
         'status': 'sent',
         'created_at': DateTime.now().toUtc().toIso8601String(),
       };
@@ -262,6 +325,114 @@ class _ChatScreenState extends State<ChatScreen> {
           const SnackBar(content: Text('Failed to send message')),
         );
       }
+    }
+  }
+
+  // ─── Long-press context menu ───
+  void _handleMessageLongPress(BuildContext ctx, types.Message message) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isMe = message.author.id == _user.id;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: isDark ? Colors.grey.shade900 : Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetCtx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Copy
+                ListTile(
+                  leading: Icon(Icons.copy, color: isDark ? Colors.white70 : Colors.black87),
+                  title: Text('Copy', style: TextStyle(color: isDark ? Colors.white : Colors.black)),
+                  onTap: () {
+                    Navigator.pop(sheetCtx);
+                    _copyMessage(message);
+                  },
+                ),
+                // Reply
+                ListTile(
+                  leading: Icon(Icons.reply, color: isDark ? Colors.white70 : Colors.black87),
+                  title: Text('Reply', style: TextStyle(color: isDark ? Colors.white : Colors.black)),
+                  onTap: () {
+                    Navigator.pop(sheetCtx);
+                    _replyToMsg(message);
+                  },
+                ),
+                // Edit (only my messages + only text)
+                if (isMe && message is types.TextMessage)
+                  ListTile(
+                    leading: Icon(Icons.edit, color: isDark ? Colors.white70 : Colors.black87),
+                    title: Text('Edit', style: TextStyle(color: isDark ? Colors.white : Colors.black)),
+                    onTap: () {
+                      Navigator.pop(sheetCtx);
+                      _editMessage(message);
+                    },
+                  ),
+                // Delete (only my messages)
+                if (isMe)
+                  ListTile(
+                    leading: const Icon(Icons.delete, color: Colors.redAccent),
+                    title: const Text('Delete', style: TextStyle(color: Colors.redAccent)),
+                    onTap: () {
+                      Navigator.pop(sheetCtx);
+                      _deleteMessage(message);
+                    },
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _copyMessage(types.Message message) {
+    String text = '';
+    if (message is types.TextMessage) {
+      text = message.text;
+    } else if (message is types.ImageMessage) {
+      text = message.uri;
+    }
+    Clipboard.setData(ClipboardData(text: text));
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Copied to clipboard'), duration: Duration(seconds: 1)),
+      );
+    }
+  }
+
+  void _replyToMsg(types.Message message) {
+    setState(() {
+      _replyToMessage = message;
+      _isEditing = false;
+      _editingMessage = null;
+    });
+  }
+
+  void _editMessage(types.Message message) {
+    if (message is types.TextMessage) {
+      setState(() {
+        _isEditing = true;
+        _editingMessage = message;
+        _replyToMessage = null;
+        _textController.text = message.text;
+      });
+    }
+  }
+
+  void _deleteMessage(types.Message message) async {
+    await LocalDbService().deleteMessage(message.id);
+    _loadLocalMessages();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Message deleted'), duration: Duration(seconds: 1)),
+      );
     }
   }
 
@@ -319,6 +490,190 @@ class _ChatScreenState extends State<ChatScreen> {
           Text(label, style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: isDark ? Colors.grey.shade300 : Colors.grey.shade700)),
         ],
       ),
+    );
+  }
+
+  void _handleKeyboardImage(KeyboardInsertedContent content) async {
+    final bytes = content.data;
+    if (bytes == null) return;
+    
+    final fileExt = content.mimeType.split('/').last;
+    final msgId = const Uuid().v4();
+    final fileName = '$msgId.$fileExt';
+
+    try {
+      // 1. Upload to Supabase drop-box
+      await Supabase.instance.client.storage
+          .from('chat_media')
+          .uploadBinary(fileName, bytes);
+      
+      final publicUrl = Supabase.instance.client.storage
+          .from('chat_media')
+          .getPublicUrl(fileName);
+
+      // 2. Prepare message
+      final msgData = {
+        'id': msgId,
+        'author_id': _user.id,
+        'receiver_id': _partner.id,
+        'text': '[IMAGE]:$publicUrl',
+        'status': 'sent',
+        'created_at': DateTime.now().toUtc().toIso8601String(),
+      };
+
+      // 3. Save locally
+      await LocalDbService().saveMessage(msgData);
+
+      // 4. Send to Supabase queue
+      await Supabase.instance.client.from('messages').insert(msgData);
+
+      _loadLocalMessages();
+    } catch (e) {
+      debugPrint('Error sending keyboard image: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to send image')),
+        );
+      }
+    }
+  }
+
+  Widget _buildCustomInput() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    // Reply / Edit preview banner
+    Widget? banner;
+    if (_replyToMessage != null) {
+      String preview = '';
+      if (_replyToMessage is types.TextMessage) {
+        preview = (_replyToMessage as types.TextMessage).text;
+      } else if (_replyToMessage is types.ImageMessage) {
+        preview = '📷 Photo';
+      } else {
+        preview = 'Message';
+      }
+      if (preview.length > 60) preview = '${preview.substring(0, 60)}...';
+      final isPartner = _replyToMessage!.author.id == _partner.id;
+      banner = Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: isDark ? Colors.grey.shade800 : Colors.grey.shade200,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+        ),
+        child: Row(
+          children: [
+            Container(width: 3, height: 36, color: Colors.pinkAccent),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(isPartner ? (_partner.firstName ?? 'Partner') : 'You',
+                    style: const TextStyle(color: Colors.pinkAccent, fontWeight: FontWeight.bold, fontSize: 12)),
+                  Text(preview, style: TextStyle(color: isDark ? Colors.grey.shade400 : Colors.grey.shade600, fontSize: 13), maxLines: 1, overflow: TextOverflow.ellipsis),
+                ],
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.close, size: 18),
+              onPressed: () => setState(() => _replyToMessage = null),
+            ),
+          ],
+        ),
+      );
+    } else if (_isEditing && _editingMessage != null) {
+      banner = Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: isDark ? Colors.grey.shade800 : Colors.grey.shade200,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+        ),
+        child: Row(
+          children: [
+            Container(width: 3, height: 36, color: Colors.blueAccent),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('Editing', style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold, fontSize: 12)),
+                  if (_editingMessage is types.TextMessage)
+                    Text((_editingMessage as types.TextMessage).text,
+                      style: TextStyle(color: isDark ? Colors.grey.shade400 : Colors.grey.shade600, fontSize: 13), maxLines: 1, overflow: TextOverflow.ellipsis),
+                ],
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.close, size: 18),
+              onPressed: () => setState(() { _isEditing = false; _editingMessage = null; _textController.clear(); }),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (banner != null) banner,
+        Container(
+          color: isDark ? Colors.grey.shade900 : const Color(0xFFF5F5F5),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          child: SafeArea(
+            child: Row(
+              children: [
+                IconButton(
+                  icon: Icon(Icons.attach_file, color: isDark ? Colors.white : Colors.black),
+                  onPressed: _handleAttachmentPressed,
+                ),
+                Expanded(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: isDark ? Colors.black : Colors.white,
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: TextField(
+                      controller: _textController,
+                      textCapitalization: TextCapitalization.sentences,
+                      minLines: 1,
+                      maxLines: 5,
+                      style: TextStyle(color: isDark ? Colors.white : Colors.black),
+                      contentInsertionConfiguration: ContentInsertionConfiguration(
+                        onContentInserted: (KeyboardInsertedContent content) {
+                          _handleKeyboardImage(content);
+                        },
+                      ),
+                      decoration: InputDecoration(
+                        hintText: _isEditing ? 'Edit message...' : 'Type a message...',
+                        hintStyle: TextStyle(color: isDark ? Colors.grey.shade500 : Colors.grey.shade400),
+                        border: InputBorder.none,
+                      ),
+                      onSubmitted: (text) {
+                        if (text.trim().isNotEmpty) {
+                          _handleSendPressed(types.PartialText(text: text.trim()));
+                          _textController.clear();
+                        }
+                      },
+                    ),
+                  ),
+                ),
+                IconButton(
+                  icon: Icon(_isEditing ? Icons.check : Icons.send, color: _isEditing ? Colors.blueAccent : Colors.pinkAccent),
+                  onPressed: () {
+                     if (_textController.text.trim().isNotEmpty) {
+                        _handleSendPressed(types.PartialText(text: _textController.text.trim()));
+                        _textController.clear();
+                     }
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -445,6 +800,8 @@ class _ChatScreenState extends State<ChatScreen> {
                             Navigator.push(context, MaterialPageRoute(builder: (context) => VideoCallScreen(
                               roomName: widget.connection!['connection_id'],
                               participantName: _user.firstName ?? 'Me',
+                              participantId: _user.id,
+                              isVideoCall: true,
                             )));
                           }
                         }
@@ -475,6 +832,7 @@ class _ChatScreenState extends State<ChatScreen> {
                             Navigator.push(context, MaterialPageRoute(builder: (context) => VideoCallScreen(
                               roomName: widget.connection!['connection_id'],
                               participantName: _user.firstName ?? 'Me',
+                              participantId: _user.id,
                               isVideoCall: false,
                             )));
                           }
@@ -506,9 +864,73 @@ class _ChatScreenState extends State<ChatScreen> {
         messages: _messages,
         onSendPressed: _handleSendPressed,
         onAttachmentPressed: _handleAttachmentPressed,
+        onMessageLongPress: _handleMessageLongPress,
         user: _user,
         showUserAvatars: true,
         showUserNames: true,
+        customBottomWidget: _buildCustomInput(),
+        textMessageBuilder: (types.TextMessage msg, {required int messageWidth, required bool showName}) {
+          final isMe = msg.author.id == _user.id;
+
+          // Parse reply prefix: [REPLY:preview]\nactualText
+          String? replyPreview;
+          String displayText = msg.text;
+          if (msg.text.startsWith('[REPLY:')) {
+            final closingBracket = msg.text.indexOf(']');
+            if (closingBracket != -1) {
+              replyPreview = msg.text.substring(7, closingBracket);
+              displayText = msg.text.substring(closingBracket + 1).trim();
+            }
+          }
+
+          return Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Reply quote block
+                if (replyPreview != null)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 6),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: isMe ? Colors.pink.shade700 : (isDark ? Colors.grey.shade800 : Colors.grey.shade300),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border(left: BorderSide(color: Colors.pinkAccent, width: 3)),
+                    ),
+                    child: Text(
+                      replyPreview,
+                      style: TextStyle(color: isMe ? Colors.white70 : Colors.grey.shade600, fontSize: 13, fontStyle: FontStyle.italic),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                // Actual message text
+                Text(displayText, style: TextStyle(color: isMe ? Colors.white : (isDark ? Colors.white : Colors.black), fontSize: 16)),
+                const SizedBox(height: 4),
+                // Timestamp + ticks row
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      DateFormat('hh:mm a').format(DateTime.fromMillisecondsSinceEpoch(msg.createdAt ?? 0)),
+                      style: TextStyle(color: isMe ? Colors.white70 : Colors.grey.shade500, fontSize: 10),
+                    ),
+                    if (isMe) ...[
+                      const SizedBox(width: 4),
+                      if (msg.status == types.Status.seen)
+                        const Text('\u2713\u2713', style: TextStyle(color: Colors.blue, fontSize: 10))
+                      else if (msg.status == types.Status.delivered)
+                        const Text('\u2713\u2713', style: TextStyle(color: Colors.grey, fontSize: 10))
+                      else
+                        const Text('\u2713', style: TextStyle(color: Colors.grey, fontSize: 10)),
+                    ]
+                  ],
+                ),
+              ],
+            ),
+          );
+        },
         theme: DefaultChatTheme(
           primaryColor: Colors.pink, // Fixes white on white blending! Solid vibrant color!
           backgroundColor: isDark ? Colors.black : Colors.white,

@@ -7,12 +7,14 @@ import '../services/livekit_service.dart';
 class VideoCallScreen extends StatefulWidget {
   final String roomName;
   final String participantName;
+  final String participantId;
   final bool isVideoCall;
 
   const VideoCallScreen({
     super.key, 
     required this.roomName, 
     required this.participantName,
+    required this.participantId,
     this.isVideoCall = true,
   });
 
@@ -42,7 +44,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
 
   Future<void> _connect() async {
     try {
-      final token = LiveKitService.generateToken(roomName: widget.roomName, participantName: widget.participantName);
+      final token = LiveKitService.generateToken(roomName: widget.roomName, participantName: widget.participantName, participantId: widget.participantId);
       final url = dotenv.env['LIVEKIT_URL'] ?? '';
 
       if (url.isEmpty) throw Exception('LIVEKIT_URL is not set in .env');

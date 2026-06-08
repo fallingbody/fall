@@ -14,6 +14,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'dart:async';
+import 'package:uuid/uuid.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -44,31 +45,57 @@ class _HomeScreenState extends State<HomeScreen> {
         .listen((data) async {
       for (var row in data) {
         if (row['receiver_id'] == myId) {
-          // Handle incoming calls
-          if (row['text'].toString().startsWith('CALL_INVITE_')) {
-            String createdAtStr = row['created_at'].toString();
-            if (!createdAtStr.endsWith('Z') && !createdAtStr.contains('+')) {
-              createdAtStr += 'Z';
-            }
-            final createdAt = DateTime.parse(createdAtStr).toUtc();
-            
-            if (DateTime.now().toUtc().difference(createdAt).inSeconds < 45) {
-              if (!_processedCalls.contains(row['id'])) {
-                _processedCalls.add(row['id']);
-                _showIncomingCall(row);
+          final text = row['text'].toString();
+
+          // 1. Check if it's a control message (Receipt)
+          if (text.startsWith('RECEIPT_DELIVERED:')) {
+            final targetMsgId = text.substring(18);
+            await LocalDbService().updateMessageStatus(targetMsgId, 'delivered');
+          } else if (text.startsWith('RECEIPT_SEEN:')) {
+            final targetMsgId = text.substring(13);
+            await LocalDbService().updateMessageStatus(targetMsgId, 'seen');
+          } else {
+            // Handle incoming calls
+            if (text.startsWith('CALL_INVITE_')) {
+              String createdAtStr = row['created_at'].toString();
+              if (!createdAtStr.endsWith('Z') && !createdAtStr.contains('+')) {
+                createdAtStr += 'Z';
+              }
+              final createdAt = DateTime.parse(createdAtStr).toUtc();
+              
+              if (DateTime.now().toUtc().difference(createdAt).inSeconds < 45) {
+                if (!_processedCalls.contains(row['id'])) {
+                  _processedCalls.add(row['id']);
+                  _showIncomingCall(row);
+                }
               }
             }
+
+            // Handle Image Download (Fire and forget, or await)
+            if (text.startsWith('[IMAGE]:')) {
+              await _processIncomingImage(row);
+            } else {
+              // Save standard text/call message
+              row['status'] = 'delivered'; // mark my local copy as delivered
+              await LocalDbService().saveMessage(row);
+            }
+
+            // Send back a Delivered receipt to the author!
+            try {
+              await Supabase.instance.client.from('messages').insert({
+                'id': const Uuid().v4(),
+                'author_id': myId,
+                'receiver_id': row['author_id'],
+                'text': 'RECEIPT_DELIVERED:${row['id']}',
+                'status': 'sent',
+                'created_at': DateTime.now().toUtc().toIso8601String(),
+              });
+            } catch (e) {
+              debugPrint('Failed to send delivered receipt: $e');
+            }
           }
 
-          // Handle Image Download (Fire and forget, or await)
-          if (row['text'].toString().startsWith('[IMAGE]:')) {
-            await _processIncomingImage(row);
-          } else {
-            // Save standard text/call message
-            await LocalDbService().saveMessage(row);
-          }
-
-          // Dequeue! Delete from Supabase permanent storage
+          // Always Dequeue! Delete from Supabase permanent storage
           try {
             await Supabase.instance.client.from('messages').delete().eq('id', row['id']);
           } catch (e) {
@@ -145,10 +172,12 @@ class _HomeScreenState extends State<HomeScreen> {
             ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
               onPressed: () {
+                final myId = Supabase.instance.client.auth.currentUser?.id ?? '';
                 Navigator.pop(context);
                 Navigator.push(context, MaterialPageRoute(builder: (context) => VideoCallScreen(
                   roomName: roomId,
                   participantName: 'Me',
+                  participantId: myId,
                   isVideoCall: isVideo,
                 )));
               },

@@ -23,6 +23,21 @@ class LocalDbService {
     }
   }
 
+  /// Update the status of an existing message
+  Future<void> updateMessageStatus(String id, String newStatus) async {
+    try {
+      final message = _messagesBox.get(id);
+      if (message != null) {
+        // Create a new map to avoid type issues with Hive maps
+        final updatedMessage = Map<String, dynamic>.from(message.map((key, value) => MapEntry(key.toString(), value)));
+        updatedMessage['status'] = newStatus;
+        await _messagesBox.put(id, updatedMessage);
+      }
+    } catch (e) {
+      debugPrint('Error updating message status locally: $e');
+    }
+  }
+
   /// Listen to changes in the local database
   Stream<BoxEvent> watchMessages() {
     return _messagesBox.watch();
