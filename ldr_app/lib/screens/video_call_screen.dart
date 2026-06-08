@@ -171,13 +171,13 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     VideoTrack? remoteVideoTrack;
     if (_remoteParticipant != null) {
       // 1. Try to find a screen share track first
-      final screenSharePubs = _remoteParticipant!.videoTrackPublications.values.where((p) => p.source == TrackSource.screenShareVideo && p.track != null).toList();
+      final screenSharePubs = _remoteParticipant!.videoTrackPublications.where((p) => p.source == TrackSource.screenShareVideo && p.track != null).toList();
       
       if (screenSharePubs.isNotEmpty) {
         remoteVideoTrack = screenSharePubs.first.track as VideoTrack;
       } else {
         // 2. Fallback to camera track
-        final cameraPubs = _remoteParticipant!.videoTrackPublications.values.where((p) => p.track != null).toList();
+        final cameraPubs = _remoteParticipant!.videoTrackPublications.where((p) => p.track != null).toList();
         if (cameraPubs.isNotEmpty) {
           remoteVideoTrack = cameraPubs.first.track as VideoTrack;
         }
@@ -187,7 +187,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     // Get local video track
     VideoTrack? localVideoTrack;
     if (_room.localParticipant != null) {
-      for (var pub in _room.localParticipant!.videoTrackPublications.values) {
+      for (var pub in _room.localParticipant!.videoTrackPublications) {
         if (pub.track is VideoTrack) {
           localVideoTrack = pub.track as VideoTrack;
           break;
@@ -237,7 +237,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
           // Remote Video (Full Screen)
           if (remoteVideoTrack != null)
             Positioned.fill(
-              child: VideoTrackRenderer(remoteVideoTrack, fit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain),
+              child: VideoTrackRenderer(remoteVideoTrack, fit: VideoViewFit.contain),
             )
           else if (!_videoMuted)
             const Center(
@@ -255,7 +255,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
                 borderRadius: BorderRadius.circular(12),
                 child: Container(
                   color: Colors.grey.shade900,
-                  child: VideoTrackRenderer(localVideoTrack, fit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover),
+                  child: VideoTrackRenderer(localVideoTrack, fit: VideoViewFit.cover),
                 ),
               ),
             ),

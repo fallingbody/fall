@@ -5,7 +5,6 @@ import 'package:flutter_chat_types/flutter_chat_types.dart' as types;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'video_call_screen.dart';
 import 'map_screen.dart';

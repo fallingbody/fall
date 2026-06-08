@@ -70,7 +70,6 @@ class MapScreen extends StatelessWidget {
                 points: [myPos, partnerPos],
                 color: Colors.pinkAccent,
                 strokeWidth: 4.0,
-                isDotted: true,
               ),
             ],
           ),
