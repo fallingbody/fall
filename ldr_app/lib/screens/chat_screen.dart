@@ -8,6 +8,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'video_call_screen.dart';
+import 'map_screen.dart';
 
 class ChatScreen extends StatefulWidget {
   final Map<String, dynamic>? connection;
@@ -105,15 +106,18 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  void _openPartnerLocation() async {
-    if (_partnerProfile == null) return;
+  void _openPartnerLocation() {
+    if (_partnerProfile == null || _myLat == null || _myLon == null) return;
     final pLat = _partnerProfile!['latitude'];
     final pLon = _partnerProfile!['longitude'];
     if (pLat != null && pLon != null) {
-      final url = Uri.parse('https://www.google.com/maps/search/?api=1&query=$pLat,$pLon');
-      if (await canLaunchUrl(url)) {
-        await launchUrl(url);
-      }
+      Navigator.push(context, MaterialPageRoute(builder: (context) => MapScreen(
+        myLat: _myLat!,
+        myLon: _myLon!,
+        partnerLat: pLat,
+        partnerLon: pLon,
+        partnerName: _partner.firstName ?? 'Partner',
+      )));
     }
   }
 

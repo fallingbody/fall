@@ -51,6 +51,8 @@ dependencies:
   livekit_client: ^2.3.1+hotfix.1
   dart_jsonwebtoken: ^3.4.1
   flutter_svg: ^2.3.0
+  flutter_map: ^8.3.0
+  latlong2: ^0.9.1
 
 dev_dependencies:
   flutter_test:
