@@ -135,7 +135,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   void _toggleScreenShare() async {
     if (_room.localParticipant == null) return;
     bool nextState = !_isScreenSharing;
-    await _room.localParticipant!.setScreenShareEnabled(nextState);
+    await _room.localParticipant!.setScreenShareEnabled(nextState, captureScreenAudio: true);
     setState(() => _isScreenSharing = nextState);
   }
 
