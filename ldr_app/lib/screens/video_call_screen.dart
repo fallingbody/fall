@@ -136,6 +136,25 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     if (_room.localParticipant == null) return;
     bool nextState = !_isScreenSharing;
     await _room.localParticipant!.setScreenShareEnabled(nextState, captureScreenAudio: true);
+    
+    // Fix Browser Audio Ducking on Android:
+    // When screen sharing starts, we tell Android we are in "normal" media mode and stop forcing Audio Focus.
+    // This allows Chrome/YouTube to play their audio simultaneously without being muted by the OS.
+    if (WebRTC.platformIsAndroid) {
+      if (nextState) {
+        await Helper.setAndroidAudioConfiguration(
+          AndroidAudioConfiguration(
+            manageAudioFocus: false,
+            androidAudioMode: AndroidAudioMode.normal,
+            androidAudioAttributesUsageType: AndroidAudioAttributesUsageType.media,
+            androidAudioStreamType: AndroidAudioStreamType.music,
+          ),
+        );
+      } else {
+        await Helper.setAndroidAudioConfiguration(AndroidAudioConfiguration.communication);
+      }
+    }
+    
     setState(() => _isScreenSharing = nextState);
   }
 
