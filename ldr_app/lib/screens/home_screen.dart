@@ -27,6 +27,7 @@ class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
   StreamSubscription<List<Map<String, dynamic>>>? _messageSub;
   final Set<String> _processedCalls = {};
+  final Set<String> _processedMessages = {};
 
   @override
   void initState() {
@@ -45,6 +46,18 @@ class _HomeScreenState extends State<HomeScreen> {
         .listen((data) async {
       for (var row in data) {
         if (row['receiver_id'] == myId) {
+          final msgId = row['id'];
+
+          if (_processedMessages.contains(msgId)) {
+            // Already processed this message in a previous stream event.
+            // Just try to ensure it's deleted and skip processing.
+            try {
+              await Supabase.instance.client.from('messages').delete().eq('id', msgId);
+            } catch (_) {}
+            continue;
+          }
+
+          _processedMessages.add(msgId);
           final text = row['text'].toString();
 
           // 1. Check if it's a control message (Receipt)
