@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "81845148430",
+    "project_id": "fall-9250a",
+    "storage_bucket": "fall-9250a.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:81845148430:android:5265b393577037c90b955f",
+        "android_client_info": {
+          "package_name": "com.ldr.ldr_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBCT7ADCd25C8sWmpurQ7xXmtgj7jKf-Fs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

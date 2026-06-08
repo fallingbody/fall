@@ -13,8 +13,11 @@ import 'video_call_screen.dart';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
-import 'dart:async';
 import 'package:uuid/uuid.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
+import 'package:flutter_callkit_incoming/entities/entities.dart';
+import 'dart:async';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -26,14 +29,71 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
   StreamSubscription<List<Map<String, dynamic>>>? _messageSub;
+  StreamSubscription<List<Map<String, dynamic>>>? _requestsSub;
   final Set<String> _processedCalls = {};
   final Set<String> _processedMessages = {};
+  bool _hasPendingRequests = false;
 
   @override
   void initState() {
     super.initState();
     StatusService().startSync();
     _listenForCalls();
+    _listenForRequests();
+    _setupPushNotifications();
+    _setupCallKitListener();
+  }
+
+  void _setupCallKitListener() {
+    FlutterCallkitIncoming.onEvent.listen((CallEvent? event) {
+      if (event == null) return;
+      if (event is CallEventActionCallAccept) {
+        final myId = Supabase.instance.client.auth.currentUser?.id ?? '';
+        final roomId = event.id; // Using message ID as roomId
+        Navigator.push(context, MaterialPageRoute(builder: (context) => VideoCallScreen(
+          roomName: roomId,
+          participantName: 'Me',
+          participantId: myId,
+          isVideoCall: true, // We don't have isVideo mapped easily here, default to true or pass it differently. 
+        )));
+      }
+    });
+  }
+
+  void _listenForRequests() {
+    final myId = Supabase.instance.client.auth.currentUser?.id;
+    if (myId == null) return;
+
+    _requestsSub = Supabase.instance.client
+        .from('connection_requests')
+        .stream(primaryKey: ['id'])
+        .listen((data) {
+      if (!mounted) return;
+      final hasPending = data.any((row) => row['receiver_id'] == myId && row['status'] == 'pending');
+      setState(() {
+        _hasPendingRequests = hasPending;
+      });
+    });
+  }
+
+  Future<void> _setupPushNotifications() async {
+    final messaging = FirebaseMessaging.instance;
+    await messaging.requestPermission();
+    final token = await messaging.getToken();
+    if (token != null) {
+      final myId = Supabase.instance.client.auth.currentUser?.id;
+      if (myId != null) {
+        try {
+          await Supabase.instance.client.from('profiles').update({'fcm_token': token}).eq('id', myId);
+        } catch (e) {
+          debugPrint("Note: fcm_token column might not exist yet: $e");
+        }
+      }
+    }
+
+    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+      // Handle foreground notifications if needed
+    });
   }
 
   void _listenForCalls() {
@@ -168,47 +228,42 @@ class _HomeScreenState extends State<HomeScreen> {
       callerName = callerRes['full_name'] ?? callerRes['username'] ?? 'Partner';
     } catch (_) {}
 
-    if (!mounted) return;
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) {
-        return AlertDialog(
-          backgroundColor: Colors.grey.shade900,
-          title: Text('Incoming ${isVideo ? "Video" : "Audio"} Call', style: const TextStyle(color: Colors.white)),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.ring_volume, size: 48, color: Colors.pinkAccent),
-              const SizedBox(height: 16),
-              Text('$callerName is calling you...', style: const TextStyle(color: Colors.white70, fontSize: 16)),
-            ],
-          ),
-          actionsAlignment: MainAxisAlignment.spaceEvenly,
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Decline', style: TextStyle(color: Colors.redAccent, fontSize: 16)),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-              onPressed: () {
-                final myId = Supabase.instance.client.auth.currentUser?.id ?? '';
-                Navigator.pop(context);
-                Navigator.push(context, MaterialPageRoute(builder: (context) => VideoCallScreen(
-                  roomName: roomId,
-                  participantName: 'Me',
-                  participantId: myId,
-                  isVideoCall: isVideo,
-                )));
-              },
-              child: const Text('Accept', style: TextStyle(color: Colors.white, fontSize: 16)),
-            ),
-          ],
-        );
-      }
+    final callKitParams = CallKitParams(
+      id: row['id'], // Use message ID to prevent duplicates
+      nameCaller: callerName,
+      appName: 'fall',
+      avatar: 'https://i.pravatar.cc/100', // Placeholder
+      handle: isVideo ? 'Video Call' : 'Audio Call',
+      type: isVideo ? 1 : 0, // 0 = audio, 1 = video
+      duration: 45000,
+      extra: <String, dynamic>{'roomId': roomId, 'isVideo': isVideo},
+      android: const AndroidParams(
+        isCustomNotification: true,
+        isShowLogo: false,
+        ringtonePath: 'system_ringtone_default',
+        backgroundColor: '#E91E63', // Pinkish
+        backgroundUrl: 'https://i.pravatar.cc/500',
+        actionColor: '#4CAF50',
+      ),
+      ios: IOSParams(
+        iconName: 'CallKitLogo',
+        handleType: 'generic',
+        supportsVideo: isVideo,
+        maximumCallGroups: 2,
+        maximumCallsPerCallGroup: 1,
+        audioSessionMode: 'default',
+        audioSessionActive: true,
+        audioSessionPreferredSampleRate: 44100.0,
+        audioSessionPreferredIOBufferDuration: 0.005,
+        supportsDTMF: true,
+        supportsHolding: true,
+        supportsGrouping: false,
+        supportsUngrouping: false,
+        ringtonePath: 'system_ringtone_default',
+      ),
     );
+
+    await FlutterCallkitIncoming.showCallkitIncoming(callKitParams);
   }
 
   @override
@@ -245,7 +300,11 @@ class _HomeScreenState extends State<HomeScreen> {
         elevation: 0,
         actions: [
           IconButton(
-            icon: Icon(Icons.favorite_border, color: isDark ? Colors.white : Colors.black),
+            icon: Badge(
+              isLabelVisible: _hasPendingRequests,
+              backgroundColor: Colors.red,
+              child: Icon(Icons.favorite_border, color: isDark ? Colors.white : Colors.black),
+            ),
             onPressed: () {
               Navigator.push(context, MaterialPageRoute(builder: (context) => const PartnerSearchScreen()));
             },

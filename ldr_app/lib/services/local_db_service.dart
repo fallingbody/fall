@@ -57,6 +57,22 @@ class LocalDbService {
     return _messagesBox.watch();
   }
 
+  /// Get the total number of messages exchanged with a specific partner
+  int getMessageCountForPartner(String myId, String partnerId) {
+    int count = 0;
+    for (var msg in _messagesBox.values) {
+      if (msg == null) continue;
+      final mapMsg = Map<String, dynamic>.from(msg.map((key, value) => MapEntry(key.toString(), value)));
+      final authorId = mapMsg['author_id'];
+      final receiverId = mapMsg['receiver_id'];
+      if ((authorId == myId && receiverId == partnerId) || 
+          (authorId == partnerId && receiverId == myId)) {
+        count++;
+      }
+    }
+    return count;
+  }
+
   /// Load messages for a specific connection (me and partner)
   List<Map<String, dynamic>> getMessagesForConnection(String myId, String partnerId) {
     try {

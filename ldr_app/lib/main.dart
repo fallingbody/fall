@@ -14,6 +14,16 @@ import 'screens/achievements_screen.dart';
 import 'screens/games_screen.dart';
 import 'screens/settings_screen.dart';
 
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'firebase_options.dart';
+
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  debugPrint("Handling a background message: ${message.messageId}");
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
@@ -21,6 +31,12 @@ void main() async {
   await dotenv.load(fileName: ".env").catchError((_) {
     // Ignore error if .env is not found yet
   });
+
+  // Initialize Firebase
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
   // Initialize Supabase if keys are present
   final supabaseUrl = dotenv.env['SUPABASE_URL'];

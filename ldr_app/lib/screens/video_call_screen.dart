@@ -135,7 +135,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     
     // If in audio mode and turning on video, send request instead of forcing
     if (!_isVideoMode && _videoMuted) {
-      await _room.localParticipant?.publishData(utf8.encode('VIDEO_REQUEST'), reliability: Reliability.reliable);
+      await _room.localParticipant?.publishData(utf8.encode('VIDEO_REQUEST'));
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sent video request to partner...')));
       }
@@ -380,7 +380,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
           TextButton(
             onPressed: () {
               Navigator.pop(context);
-              _room.localParticipant?.publishData(utf8.encode('VIDEO_ACCEPT'), reliability: Reliability.reliable);
+              _room.localParticipant?.publishData(utf8.encode('VIDEO_ACCEPT'));
               setState(() {
                 _isVideoMode = true;
               });

@@ -185,7 +185,7 @@ class _ChatScreenState extends State<ChatScreen> {
           author: row['author_id'] == _user.id ? _user : _partner,
           createdAt: dt.millisecondsSinceEpoch,
           status: msgStatus,
-          metadata: {'type': 'call_invite'},
+          metadata: {'type': 'call_invite', 'text': row['text'].toString()},
         );
       }
 
@@ -891,6 +891,33 @@ class _ChatScreenState extends State<ChatScreen> {
         showUserAvatars: true,
         showUserNames: true,
         customBottomWidget: _buildCustomInput(),
+        customMessageBuilder: (types.CustomMessage msg, {required int messageWidth}) {
+          if (msg.metadata?['type'] == 'call_invite') {
+            final String text = msg.metadata?['text'] ?? '';
+            final isVideo = text.startsWith('CALL_INVITE_VIDEO');
+            final timeStr = DateFormat('hh:mm a').format(DateTime.fromMillisecondsSinceEpoch(msg.createdAt ?? 0));
+            return Container(
+              margin: const EdgeInsets.symmetric(vertical: 8),
+              alignment: Alignment.center,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).brightness == Brightness.dark ? Colors.grey.shade800 : Colors.grey.shade200,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Text(
+                  '${isVideo ? "📹 Video Call" : "📞 Audio Call"} - $timeStr',
+                  style: TextStyle(
+                    color: Theme.of(context).brightness == Brightness.dark ? Colors.white70 : Colors.black87,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            );
+          }
+          return const SizedBox();
+        },
         textMessageBuilder: (types.TextMessage msg, {required int messageWidth, required bool showName}) {
           final isMe = msg.author.id == _user.id;
 

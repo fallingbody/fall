@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import '../partner_search_screen.dart';
+import '../../services/local_db_service.dart';
 
 class EngageTab extends StatefulWidget {
   const EngageTab({super.key});
@@ -15,6 +16,7 @@ class _EngageTabState extends State<EngageTab> {
   final _supabase = Supabase.instance.client;
   bool _isLoading = true;
   List<Map<String, dynamic>> _connections = [];
+  Map<String, int> _messageCounts = {};
 
   @override
   void initState() {
@@ -60,11 +62,13 @@ class _EngageTabState extends State<EngageTab> {
 
       // 4. Combine into _connections list
       final List<Map<String, dynamic>> combined = [];
+      final Map<String, int> counts = {};
+
       for (var req in requests) {
         final otherId = req['sender_id'] == myId ? req['receiver_id'] : req['sender_id'];
         final profile = profiles.firstWhere((p) => p['id'] == otherId, orElse: () => {'username': 'Unknown', 'full_name': 'Unknown User'});
         
-        // Also fetch the last message to show in preview? (Optional, skipping for now to keep it fast)
+        counts[otherId] = LocalDbService().getMessageCountForPartner(myId, otherId);
 
         combined.add({
           'connection_id': req['id'],
@@ -86,6 +90,7 @@ class _EngageTabState extends State<EngageTab> {
 
       setState(() {
         _connections = combined;
+        _messageCounts = counts;
         _isLoading = false;
       });
     } catch (e) {
@@ -239,10 +244,29 @@ class _EngageTabState extends State<EngageTab> {
                                   ],
                                 ),
                                 const SizedBox(height: 4),
-                                Text('@${profile['username']}', style: TextStyle(color: isDark ? Colors.grey.shade500 : Colors.grey.shade600, fontSize: 15)),
+                                Row(
+                                  children: [
+                                    Text('@${profile['username']}', style: TextStyle(color: isDark ? Colors.grey.shade500 : Colors.grey.shade600, fontSize: 15)),
+                                    const Spacer(),
+                                    if (_messageCounts[conn['other_user_id']] != null && _messageCounts[conn['other_user_id']]! > 0)
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                        decoration: BoxDecoration(color: Colors.blueAccent.withOpacity(0.2), borderRadius: BorderRadius.circular(12)),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Icon(Icons.chat_bubble_outline, size: 12, color: Colors.blueAccent),
+                                            const SizedBox(width: 4),
+                                            Text('${_messageCounts[conn['other_user_id']]}', style: const TextStyle(color: Colors.blueAccent, fontSize: 12, fontWeight: FontWeight.bold)),
+                                          ],
+                                        ),
+                                      )
+                                  ],
+                                ),
                               ],
                             ),
                           ),
+                          const SizedBox(width: 8),
                           Icon(Icons.chevron_right, color: isDark ? Colors.grey.shade700 : Colors.grey.shade400),
                         ],
                       ),
@@ -257,20 +281,6 @@ class _EngageTabState extends State<EngageTab> {
     );
   }
 
-  Widget _buildQuickAction(IconData icon, String label, Color color, bool isDark) {
-    return Column(
-      children: [
-        Container(
-          width: 65,
-          height: 65,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            border: Border.all(color: isDark ? Colors.grey.shade800 : Colors.grey.shade300, width: 1),
-            color: isDark ? Colors.black : Colors.white,
-          ),
-          child: Icon(icon, color: color, size: 28),
-        ),
-        const SizedBox(height: 6),
   Widget _buildQuickAction(String svgString, String label, Color color, bool isDark) {
     return Column(
       children: [
@@ -289,12 +299,12 @@ class _EngageTabState extends State<EngageTab> {
   }
 
   // SVG Constants
-  static const String _svgPartner = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#FF4081"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>';
-  static const String _svgFamily = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#FFB300"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>';
-  static const String _svgFriends = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#448AFF"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>';
-  static const String _svgAchievements = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#FFC107"><path d="M19 5h-2V3H7v2H5c-1.1 0-2 .9-2 2v1c0 2.55 1.92 4.63 4.39 4.94A5.01 5.01 0 0011 15.9V19H7v2h10v-2h-4v-3.1a5.01 5.01 0 003.61-2.96C19.08 12.63 21 10.55 21 8V7c0-1.1-.9-2-2-2zM7 10.82C5.84 10.4 5 9.3 5 8 V7h2v3.82zM19 8c0 1.3-.84 2.4-2 2.82V7h2v1z"/></svg>';
-  static const String _svgMinigames = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#FF5722"><path d="M21 6H3c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-10 7H8v3H6v-3H3v-2h3V8h2v3h3v2zm4.5 2c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm3-3c-.83 0-1.5-.67-1.5-1.5S17.67 9 18.5 9s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg>';
-  static const String _svgMemories = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#9C27B0"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>';
+  final String _svgPartner = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#FF4081"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>';
+  final String _svgFamily = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#FFB300"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>';
+  final String _svgFriends = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#448AFF"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>';
+  final String _svgAchievements = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#FFC107"><path d="M19 5h-2V3H7v2H5c-1.1 0-2 .9-2 2v1c0 2.55 1.92 4.63 4.39 4.94A5.01 5.01 0 0011 15.9V19H7v2h10v-2h-4v-3.1a5.01 5.01 0 003.61-2.96C19.08 12.63 21 10.55 21 8V7c0-1.1-.9-2-2-2zM7 10.82C5.84 10.4 5 9.3 5 8 V7h2v3.82zM19 8c0 1.3-.84 2.4-2 2.82V7h2v1z"/></svg>';
+  final String _svgMinigames = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#FF5722"><path d="M21 6H3c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-10 7H8v3H6v-3H3v-2h3V8h2v3h3v2zm4.5 2c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm3-3c-.83 0-1.5-.67-1.5-1.5S17.67 9 18.5 9s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg>';
+  final String _svgMemories = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#9C27B0"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>';
 
   Widget _buildStoryItem(IconData icon, String label, Color color, bool isDark) {
     return Column(
