@@ -171,6 +171,17 @@ class _ChatScreenState extends State<ChatScreen> {
         }
         final dt = DateTime.parse(createdAtStr).toUtc();
 
+        // Do not render call invites as text messages
+        if (row['text'].toString().startsWith('CALL_INVITE_')) {
+          return types.CustomMessage(
+            id: row['id'],
+            author: row['author_id'] == _user.id ? _user : _partner,
+            createdAt: dt.millisecondsSinceEpoch,
+            status: msgStatus,
+            metadata: {'type': 'call_invite'},
+          );
+        }
+
         return types.TextMessage(
           id: row['id'],
           author: row['author_id'] == _user.id ? _user : _partner,
@@ -331,12 +342,24 @@ class _ChatScreenState extends State<ChatScreen> {
                           width: 24,
                           height: 24,
                         ), 
-                        onPressed: () {
+                        onPressed: () async {
                           if (widget.connection == null) return;
-                          Navigator.push(context, MaterialPageRoute(builder: (context) => VideoCallScreen(
-                            roomName: widget.connection!['connection_id'],
-                            participantName: _user.firstName ?? 'Me',
-                          )));
+                          
+                          await Supabase.instance.client.from('messages').insert({
+                            'id': const Uuid().v4(),
+                            'author_id': _user.id,
+                            'receiver_id': _partner.id,
+                            'text': 'CALL_INVITE_VIDEO:${widget.connection!["connection_id"]}',
+                            'status': 'sent',
+                            'created_at': DateTime.now().toUtc().toIso8601String(),
+                          });
+
+                          if (context.mounted) {
+                            Navigator.push(context, MaterialPageRoute(builder: (context) => VideoCallScreen(
+                              roomName: widget.connection!['connection_id'],
+                              participantName: _user.firstName ?? 'Me',
+                            )));
+                          }
                         }
                       ),
                       IconButton(
@@ -345,13 +368,25 @@ class _ChatScreenState extends State<ChatScreen> {
                           width: 24,
                           height: 24,
                         ), 
-                        onPressed: () {
+                        onPressed: () async {
                           if (widget.connection == null) return;
-                          Navigator.push(context, MaterialPageRoute(builder: (context) => VideoCallScreen(
-                            roomName: widget.connection!['connection_id'],
-                            participantName: _user.firstName ?? 'Me',
-                            isVideoCall: false,
-                          )));
+                          
+                          await Supabase.instance.client.from('messages').insert({
+                            'id': const Uuid().v4(),
+                            'author_id': _user.id,
+                            'receiver_id': _partner.id,
+                            'text': 'CALL_INVITE_AUDIO:${widget.connection!["connection_id"]}',
+                            'status': 'sent',
+                            'created_at': DateTime.now().toUtc().toIso8601String(),
+                          });
+
+                          if (context.mounted) {
+                            Navigator.push(context, MaterialPageRoute(builder: (context) => VideoCallScreen(
+                              roomName: widget.connection!['connection_id'],
+                              participantName: _user.firstName ?? 'Me',
+                              isVideoCall: false,
+                            )));
+                          }
                         }
                       ),
                     ],

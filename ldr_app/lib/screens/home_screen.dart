@@ -7,6 +7,10 @@ import 'tabs/account_tab.dart';
 import 'partner_search_screen.dart';
 import '../services/status_service.dart';
 
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'dart:async';
+import 'video_call_screen.dart';
+
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -16,15 +20,101 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
+  StreamSubscription<List<Map<String, dynamic>>>? _messageSub;
+  final Set<String> _processedCalls = {};
 
   @override
   void initState() {
     super.initState();
     StatusService().startSync();
+    _listenForCalls();
+  }
+
+  void _listenForCalls() {
+    final myId = Supabase.instance.client.auth.currentUser?.id;
+    if (myId == null) return;
+
+    _messageSub = Supabase.instance.client
+        .from('messages')
+        .stream(primaryKey: ['id'])
+        .listen((data) {
+      for (var row in data) {
+        if (row['receiver_id'] == myId && row['text'].toString().startsWith('CALL_INVITE_')) {
+          // Check if it's recent (last 45 seconds) to avoid old calls popping up
+          String createdAtStr = row['created_at'].toString();
+          if (!createdAtStr.endsWith('Z') && !createdAtStr.contains('+')) {
+            createdAtStr += 'Z';
+          }
+          final createdAt = DateTime.parse(createdAtStr).toUtc();
+          
+          if (DateTime.now().toUtc().difference(createdAt).inSeconds < 45) {
+            if (!_processedCalls.contains(row['id'])) {
+              _processedCalls.add(row['id']);
+              _showIncomingCall(row);
+            }
+          }
+        }
+      }
+    });
+  }
+
+  void _showIncomingCall(Map<String, dynamic> row) async {
+    final isVideo = row['text'].toString().startsWith('CALL_INVITE_VIDEO:');
+    final parts = row['text'].toString().split(':');
+    if (parts.length < 2) return;
+    final roomId = parts[1];
+    
+    // Fetch caller profile
+    String callerName = 'Partner';
+    try {
+      final callerRes = await Supabase.instance.client.from('profiles').select('full_name, username').eq('id', row['author_id']).single();
+      callerName = callerRes['full_name'] ?? callerRes['username'] ?? 'Partner';
+    } catch (_) {}
+
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: Colors.grey.shade900,
+          title: Text('Incoming ${isVideo ? "Video" : "Audio"} Call', style: const TextStyle(color: Colors.white)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.ring_volume, size: 48, color: Colors.pinkAccent),
+              const SizedBox(height: 16),
+              Text('$callerName is calling you...', style: const TextStyle(color: Colors.white70, fontSize: 16)),
+            ],
+          ),
+          actionsAlignment: MainAxisAlignment.spaceEvenly,
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Decline', style: TextStyle(color: Colors.redAccent, fontSize: 16)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+              onPressed: () {
+                Navigator.pop(context);
+                Navigator.push(context, MaterialPageRoute(builder: (context) => VideoCallScreen(
+                  roomName: roomId,
+                  participantName: 'Me',
+                  isVideoCall: isVideo,
+                )));
+              },
+              child: const Text('Accept', style: TextStyle(color: Colors.white, fontSize: 16)),
+            ),
+          ],
+        );
+      }
+    );
   }
 
   @override
   void dispose() {
+    _messageSub?.cancel();
     StatusService().stopSync();
     super.dispose();
   }
