@@ -16,12 +16,89 @@ import 'screens/settings_screen.dart';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
+import 'package:flutter_callkit_incoming/entities/call_event.dart';
+import 'package:flutter_callkit_incoming/entities/call_kit_params.dart';
+import 'package:flutter_callkit_incoming/entities/android_params.dart';
+import 'package:flutter_callkit_incoming/entities/ios_params.dart';
 import 'firebase_options.dart';
+import 'screens/video_call_screen.dart';
+
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+final Map<String, bool> activeCallsVideoStatus = {};
 
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   debugPrint("Handling a background message: ${message.messageId}");
+
+  final data = message.data;
+  if (data['type'] == 'CALL_INVITE') {
+    final callerName = data['caller_name'] ?? 'Partner';
+    final roomId = data['id'] ?? '';
+    final text = data['text']?.toString() ?? '';
+    final isVideo = text.startsWith('CALL_INVITE_VIDEO:');
+    
+    activeCallsVideoStatus[roomId] = isVideo;
+
+    final callKitParams = CallKitParams(
+      id: roomId, // Use roomId directly so actionCallAccept has it
+      nameCaller: callerName,
+      appName: 'fall',
+      avatar: 'https://i.pravatar.cc/100', // Placeholder
+      handle: isVideo ? 'Video Call' : 'Audio Call',
+      type: isVideo ? 1 : 0, // 0 = audio, 1 = video
+      duration: 45000,
+      extra: <String, dynamic>{'roomId': roomId, 'isVideo': isVideo},
+      android: const AndroidParams(
+        isCustomNotification: true,
+        isShowLogo: false,
+        ringtonePath: 'system_ringtone_default',
+        backgroundColor: '#E91E63', // Pinkish
+        backgroundUrl: 'https://i.pravatar.cc/500',
+        actionColor: '#4CAF50',
+      ),
+      ios: IOSParams(
+        iconName: 'CallKitLogo',
+        handleType: 'generic',
+        supportsVideo: isVideo,
+        maximumCallGroups: 1,
+        maximumCallsPerCallGroup: 1,
+        audioSessionMode: 'default',
+        audioSessionActive: true,
+        audioSessionPreferredSampleRate: 44100.0,
+        audioSessionPreferredIOBufferDuration: 0.005,
+        supportsDTMF: true,
+        supportsHolding: false,
+        supportsGrouping: false,
+        supportsUngrouping: false,
+        ringtonePath: 'system_ringtone_default',
+      ),
+    );
+    await FlutterCallkitIncoming.showCallkitIncoming(callKitParams);
+  }
+}
+
+void _setupGlobalCallKitListener() {
+  FlutterCallkitIncoming.onEvent.listen((CallEvent? event) {
+    if (event == null) return;
+    if (event is CallEventActionCallAccept) {
+      final myId = Supabase.instance.client.auth.currentUser?.id ?? '';
+      final roomId = event.id; // Correctly mapped to roomId
+      final isVideo = activeCallsVideoStatus[roomId] ?? true;
+      
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (navigatorKey.currentContext != null) {
+          Navigator.push(navigatorKey.currentContext!, MaterialPageRoute(builder: (context) => VideoCallScreen(
+            roomName: roomId,
+            participantName: 'Me',
+            participantId: myId,
+            isVideoCall: isVideo,
+          )));
+        }
+      });
+    }
+  });
 }
 
 void main() async {
@@ -49,6 +126,9 @@ void main() async {
     );
   }
 
+  // Setup CallKit listener globally
+  _setupGlobalCallKitListener();
+
   // Initialize local database
   await LocalDbService().init();
 
@@ -56,6 +136,7 @@ void main() async {
 }
 
 final GoRouter _router = GoRouter(
+  navigatorKey: navigatorKey,
   initialLocation: '/',
   routes: <RouteBase>[
     GoRoute(

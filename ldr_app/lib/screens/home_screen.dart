@@ -17,6 +17,8 @@ import 'package:uuid/uuid.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
 import 'package:flutter_callkit_incoming/entities/entities.dart';
+import 'package:flutter_callkit_incoming/entities/ios_params.dart';
+import '../main.dart';
 import 'dart:async';
 
 class HomeScreen extends StatefulWidget {
@@ -41,23 +43,6 @@ class _HomeScreenState extends State<HomeScreen> {
     _listenForCalls();
     _listenForRequests();
     _setupPushNotifications();
-    _setupCallKitListener();
-  }
-
-  void _setupCallKitListener() {
-    FlutterCallkitIncoming.onEvent.listen((CallEvent? event) {
-      if (event == null) return;
-      if (event is CallEventActionCallAccept) {
-        final myId = Supabase.instance.client.auth.currentUser?.id ?? '';
-        final roomId = event.id; // Using message ID as roomId
-        Navigator.push(context, MaterialPageRoute(builder: (context) => VideoCallScreen(
-          roomName: roomId,
-          participantName: 'Me',
-          participantId: myId,
-          isVideoCall: true, // We don't have isVideo mapped easily here, default to true or pass it differently. 
-        )));
-      }
-    });
   }
 
   void _listenForRequests() {
@@ -221,6 +206,9 @@ class _HomeScreenState extends State<HomeScreen> {
     if (parts.length < 2) return;
     final roomId = parts[1];
     
+    // Save to global map for listener
+    activeCallsVideoStatus[roomId] = isVideo;
+    
     // Fetch caller profile
     String callerName = 'Partner';
     try {
@@ -229,7 +217,7 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (_) {}
 
     final callKitParams = CallKitParams(
-      id: row['id'], // Use message ID to prevent duplicates
+      id: roomId, // Use roomId so actionCallAccept has the correct room
       nameCaller: callerName,
       appName: 'fall',
       avatar: 'https://i.pravatar.cc/100', // Placeholder
