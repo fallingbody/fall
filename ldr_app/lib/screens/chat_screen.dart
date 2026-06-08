@@ -166,8 +166,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
         // Convert the Postgres timestamp to UTC securely so chat UI maps it to local correctly
         String createdAtStr = row['created_at'] as String;
-        if (!createdAtStr.endsWith('Z')) {
-          createdAtStr += 'Z'; // Force UTC parsing if Supabase dropped the Z
+        if (!createdAtStr.endsWith('Z') && !createdAtStr.contains('+')) {
+          createdAtStr += 'Z'; // Force UTC parsing if Supabase dropped timezone info entirely
         }
         final dt = DateTime.parse(createdAtStr).toUtc();
 
