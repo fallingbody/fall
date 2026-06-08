@@ -10,6 +10,10 @@ import '../services/status_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/local_db_service.dart';
 import 'video_call_screen.dart';
+import 'dart:io';
+import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
+import 'dart:async';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -20,7 +24,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
-  RealtimeChannel? _globalChannel;
+  StreamSubscription<List<Map<String, dynamic>>>? _messageSub;
   final Set<String> _processedCalls = {};
 
   @override
@@ -34,16 +38,12 @@ class _HomeScreenState extends State<HomeScreen> {
     final myId = Supabase.instance.client.auth.currentUser?.id;
     if (myId == null) return;
 
-    _globalChannel = Supabase.instance.client.channel('user_$myId');
-    _globalChannel!.onBroadcast(
-      event: 'message',
-      callback: (payload) {
-        final row = Map<String, dynamic>.from(payload);
-        
-        // Always save incoming messages to local disk immediately!
+    _messageSub = Supabase.instance.client
+        .from('messages')
+        .stream(primaryKey: ['id'])
+        .listen((data) async {
+      for (var row in data) {
         if (row['receiver_id'] == myId) {
-          LocalDbService().saveMessage(row);
-
           // Handle incoming calls
           if (row['text'].toString().startsWith('CALL_INVITE_')) {
             String createdAtStr = row['created_at'].toString();
@@ -59,9 +59,51 @@ class _HomeScreenState extends State<HomeScreen> {
               }
             }
           }
+
+          // Handle Image Download (Fire and forget, or await)
+          if (row['text'].toString().startsWith('[IMAGE]:')) {
+            await _processIncomingImage(row);
+          } else {
+            // Save standard text/call message
+            await LocalDbService().saveMessage(row);
+          }
+
+          // Dequeue! Delete from Supabase permanent storage
+          try {
+            await Supabase.instance.client.from('messages').delete().eq('id', row['id']);
+          } catch (e) {
+            debugPrint('Error deleting queued message: $e');
+          }
         }
       }
-    ).subscribe();
+    });
+  }
+
+  Future<void> _processIncomingImage(Map<String, dynamic> row) async {
+    final url = row['text'].toString().substring(8); // remove '[IMAGE]:'
+    
+    try {
+      final response = await http.get(Uri.parse(url));
+      if (response.statusCode == 200) {
+        final dir = await getApplicationDocumentsDirectory();
+        final fileName = row['id'] + '.jpg';
+        final localPath = '\${dir.path}/\$fileName';
+        final file = File(localPath);
+        await file.writeAsBytes(response.bodyBytes);
+        
+        // Update the row text to point to the local file
+        row['text'] = '[LOCAL_IMAGE]:\$localPath';
+        await LocalDbService().saveMessage(row);
+
+        // Delete the cloud file from the drop-box
+        await Supabase.instance.client.storage.from('chat_media').remove([fileName]);
+      } else {
+         await LocalDbService().saveMessage(row); // Save original if failed
+      }
+    } catch (e) {
+      debugPrint('Error downloading image: \$e');
+      await LocalDbService().saveMessage(row);
+    }
   }
 
   void _showIncomingCall(Map<String, dynamic> row) async {
@@ -120,7 +162,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
-    _globalChannel?.unsubscribe();
+    _messageSub?.cancel();
     StatusService().stopSync();
     super.dispose();
   }

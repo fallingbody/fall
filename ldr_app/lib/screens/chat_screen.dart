@@ -9,6 +9,8 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'video_call_screen.dart';
 import 'map_screen.dart';
 import '../services/local_db_service.dart';
+import 'package:image_picker/image_picker.dart';
+import 'dart:io';
 
 class ChatScreen extends StatefulWidget {
   final Map<String, dynamic>? connection;
@@ -173,6 +175,32 @@ class _ChatScreenState extends State<ChatScreen> {
         );
       }
 
+      if (row['text'].toString().startsWith('[LOCAL_IMAGE]:')) {
+        final path = row['text'].toString().substring(14);
+        return types.ImageMessage(
+          id: row['id'],
+          author: row['author_id'] == _user.id ? _user : _partner,
+          createdAt: dt.millisecondsSinceEpoch,
+          status: msgStatus,
+          name: 'image.jpg',
+          size: 1000,
+          uri: 'file://$path',
+        );
+      }
+
+      if (row['text'].toString().startsWith('[IMAGE]:')) {
+        final url = row['text'].toString().substring(8);
+        return types.ImageMessage(
+          id: row['id'],
+          author: row['author_id'] == _user.id ? _user : _partner,
+          createdAt: dt.millisecondsSinceEpoch,
+          status: msgStatus,
+          name: 'image.jpg',
+          size: 1000,
+          uri: url,
+        );
+      }
+
       return types.TextMessage(
         id: row['id'],
         author: row['author_id'] == _user.id ? _user : _partner,
@@ -214,11 +242,15 @@ class _ChatScreenState extends State<ChatScreen> {
       // 1. Save to local disk immediately
       await LocalDbService().saveMessage(msgData);
 
-      // 2. Blast it ephemerally over Supabase Realtime Broadcast to the partner's global channel
-      Supabase.instance.client.channel('user_${_partner.id}').sendBroadcastMessage(
-        event: 'message',
-        payload: msgData,
-      );
+      // 2. Insert into Supabase queue
+      await Supabase.instance.client.from('messages').insert({
+        'id': msgData['id'],
+        'author_id': msgData['author_id'],
+        'receiver_id': msgData['receiver_id'],
+        'text': msgData['text'],
+        'status': msgData['status'],
+        'created_at': msgData['created_at'],
+      });
 
       // 3. Update UI
       _loadLocalMessages();
@@ -230,6 +262,44 @@ class _ChatScreenState extends State<ChatScreen> {
           const SnackBar(content: Text('Failed to send message')),
         );
       }
+    }
+  }
+
+  void _handleAttachmentPressed() async {
+    final picker = ImagePicker();
+    final pickedFile = await picker.pickImage(source: ImageSource.gallery);
+    if (pickedFile == null) return;
+
+    final bytes = await pickedFile.readAsBytes();
+    final fileExt = pickedFile.path.split('.').last;
+    final msgId = const Uuid().v4();
+    final fileName = '$msgId.$fileExt';
+
+    try {
+      // Upload to Supabase temporary drop-box bucket
+      await Supabase.instance.client.storage.from('chat_media').uploadBinary(fileName, bytes);
+      final publicUrl = Supabase.instance.client.storage.from('chat_media').getPublicUrl(fileName);
+
+      final msgData = {
+        'id': msgId,
+        'author_id': _user.id,
+        'receiver_id': _partner.id,
+        'text': '[IMAGE]:$publicUrl',
+        'status': 'sent',
+        'created_at': DateTime.now().toUtc().toIso8601String(),
+      };
+
+      // 1. Save local copy for me so I don't download what I uploaded
+      final localMsgData = Map<String, dynamic>.from(msgData);
+      localMsgData['text'] = '[LOCAL_IMAGE]:${pickedFile.path}';
+      await LocalDbService().saveMessage(localMsgData);
+
+      // 2. Insert queue URL for partner
+      await Supabase.instance.client.from('messages').insert(msgData);
+      
+      _loadLocalMessages();
+    } catch (e) {
+      debugPrint('Upload error: $e');
     }
   }
 
@@ -368,7 +438,7 @@ class _ChatScreenState extends State<ChatScreen> {
                           };
 
                           await LocalDbService().saveMessage(callData);
-                          Supabase.instance.client.channel('user_${_partner.id}').sendBroadcastMessage(event: 'message', payload: callData);
+                          await Supabase.instance.client.from('messages').insert(callData);
                           _loadLocalMessages();
 
                           if (context.mounted) {
@@ -398,7 +468,7 @@ class _ChatScreenState extends State<ChatScreen> {
                           };
 
                           await LocalDbService().saveMessage(callData);
-                          Supabase.instance.client.channel('user_${_partner.id}').sendBroadcastMessage(event: 'message', payload: callData);
+                          await Supabase.instance.client.from('messages').insert(callData);
                           _loadLocalMessages();
 
                           if (context.mounted) {
@@ -435,6 +505,7 @@ class _ChatScreenState extends State<ChatScreen> {
       body: Chat(
         messages: _messages,
         onSendPressed: _handleSendPressed,
+        onAttachmentPressed: _handleAttachmentPressed,
         user: _user,
         showUserAvatars: true,
         showUserNames: true,
