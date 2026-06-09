@@ -133,29 +133,34 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
 
   void _toggleVideo() async {
     if (_room.localParticipant == null) return;
-    
-    // If in audio mode and turning on video, send request instead of forcing
+
+    // If in audio mode and trying to turn on video
     if (!_isVideoMode && _videoMuted) {
+      // 1. Turn on local camera
+      await _room.localParticipant!.setCameraEnabled(true);
+
+      // 2. Turn on speaker
+      await Hardware.instance.setSpeakerphoneOn(true);
+
+      // 3. Send request to partner
       await _room.localParticipant?.publishData(utf8.encode('VIDEO_REQUEST'));
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sent video request to partner...')));
       }
+
+      // 4. Update local state
+      setState(() {
+        _videoMuted = false; // Video is now ON
+        _speakerOn = true;   // Speaker is now ON
+      });
       return;
     }
 
-    bool nextState = !_videoMuted;
-    await _room.localParticipant!.setCameraEnabled(nextState);
-    
-    // Automatically switch to speakerphone when turning video on, or earpiece when turning off
-    if (nextState) { // turning camera off (audio only) -> earpiece
-      _speakerOn = false;
-      await Hardware.instance.setSpeakerphoneOn(false);
-    } else { // turning camera on -> speaker
-      _speakerOn = true;
-      await Hardware.instance.setSpeakerphoneOn(true);
-    }
-    
-    setState(() => _videoMuted = nextState);
+    // This part handles turning video on/off during an established video call
+    final bool newMutedState = !_videoMuted;
+    await _room.localParticipant!.setCameraEnabled(!newMutedState);
+
+    setState(() => _videoMuted = newMutedState);
   }
 
   void _toggleSpeaker() async {
@@ -166,16 +171,17 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
 
   Future<bool> _ensureForegroundService() async {
     if (WebRTC.platformIsAndroid) {
-      final hasPermissions = await FlutterBackground.hasPermissions;
-      if (!hasPermissions) {
-        final config = const FlutterBackgroundAndroidConfig(
-          notificationTitle: 'Screen Sharing',
-          notificationText: 'Your screen is currently being shared.',
-          notificationImportance: AndroidNotificationImportance.normal,
-          notificationIcon: AndroidResource(name: 'ic_launcher', defType: 'mipmap'),
-        );
-        await FlutterBackground.initialize(androidConfig: config);
-      }
+      const config = FlutterBackgroundAndroidConfig(
+        notificationTitle: 'Screen Sharing',
+        notificationText: 'Your screen is currently being shared.',
+        notificationImportance: AndroidNotificationImportance.normal,
+        notificationIcon: AndroidResource(name: 'ic_launcher', defType: 'mipmap'),
+      );
+      // Ensure initialization happens before enabling execution. This is safer as it
+      // ensures the plugin is initialized in the current app lifecycle.
+      await FlutterBackground.initialize(androidConfig: config);
+
+      // The initialize() call handles asking for permissions if not yet granted.
       return await FlutterBackground.enableBackgroundExecution();
     }
     return true;
@@ -310,7 +316,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
             ),
 
           // Local Video (PiP)
-          if (localVideoTrack != null && !_videoMuted && _isVideoMode)
+          if (localVideoTrack != null && !_videoMuted)
             Positioned(
               right: 20,
               top: 60,

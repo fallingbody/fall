@@ -1,132 +1,219 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.38.4";
+import {
+  createClient,
+  SupabaseClient,
+} from "https://esm.sh/@supabase/supabase-js@2.38.4";
 import admin from "npm:firebase-admin@11.11.0";
 
-const serviceAccountStr = Deno.env.get("FIREBASE_SERVICE_ACCOUNT");
-if (!serviceAccountStr) {
-  console.error("FIREBASE_SERVICE_ACCOUNT environment variable is not set.");
-} else {
-  try {
-    const serviceAccount = JSON.parse(serviceAccountStr);
+// --- Constants ---
+const TABLE_CONNECTION_REQUESTS = "connection_requests";
+const TABLE_MESSAGES_PREFIX = "messages";
+const TABLE_TYPING_INDICATORS = "typing_indicators";
+const NOTIFICATION_TYPE_CALL_INVITE = "CALL_INVITE";
+const NOTIFICATION_TYPE_CONNECTION_REQUEST = "CONNECTION_REQUEST";
+const NOTIFICATION_TYPE_MESSAGE = "MESSAGE";
+const NOTIFICATION_TYPE_TYPING = "TYPING";
+
+// --- Environment Variable Validation ---
+const FIREBASE_SERVICE_ACCOUNT = Deno.env.get("FIREBASE_SERVICE_ACCOUNT");
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+
+// --- Firebase Admin Initialization ---
+// Initialize outside the request handler to avoid re-initialization on every call
+try {
+  if (admin.apps.length === 0 && FIREBASE_SERVICE_ACCOUNT) {
+    const serviceAccount = JSON.parse(FIREBASE_SERVICE_ACCOUNT);
     admin.initializeApp({
       credential: admin.credential.cert(serviceAccount),
     });
     console.log("Firebase Admin initialized successfully.");
-  } catch (error) {
-    console.error("Failed to parse FIREBASE_SERVICE_ACCOUNT:", error);
   }
+} catch (error) {
+  console.error("Failed to initialize Firebase Admin:", error);
+}
+
+// --- Helper Functions ---
+
+async function getReceiverFcmToken(
+  supabase: SupabaseClient,
+  receiverId: string
+): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("fcm_token")
+    .eq("id", receiverId)
+    .single();
+
+  if (error) {
+    console.log(
+      `Error fetching receiver profile for ${receiverId}:`,
+      error.message
+    );
+    return null;
+  }
+  if (!data?.fcm_token) {
+    console.log(`Receiver ${receiverId} has no FCM token.`);
+    return null;
+  }
+  return data.fcm_token;
+}
+
+async function getAuthorName(
+  supabase: SupabaseClient,
+  authorId: string
+): Promise<string> {
+  const { data } = await supabase
+    .from("profiles")
+    .select("full_name, username")
+    .eq("id", authorId)
+    .single();
+  return data?.full_name || data?.username || "Someone";
 }
 
 serve(async (req) => {
+  // 0. Check for required configurations
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    console.error("Supabase URL or Service Role Key is not set.");
+    return new Response("Server configuration error", { status: 500 });
+  }
+  if (admin.apps.length === 0) {
+    console.error(
+      "Firebase Admin not initialized. Cannot send push notifications."
+    );
+    return new Response("Firebase Admin not initialized", { status: 500 });
+  }
+
   try {
-    // 1. Verify webhook secret or authorization if needed
-    // (You should set up a webhook secret in Supabase dashboard and verify it here)
+    // 1. Verify webhook secret (highly recommended for security)
+    // const signature = req.headers.get("X-Supabase-Signature");
+    // ... verify signature ...
 
     // 2. Parse the webhook payload
     const payload = await req.json();
     console.log("Webhook payload:", payload);
 
-    if (payload.type === "INSERT") {
-      const isMessage = payload.table === "messages" || payload.table.startsWith("messages_");
-      const isConnectionRequest = payload.table === "connection_requests";
-      
-      if (!isMessage && !isConnectionRequest) {
-        return new Response("Ignored table", { status: 200 });
-      }
+    if (payload.type !== "INSERT") {
+      return new Response("Ignored: not an INSERT event", { status: 200 });
+    }
 
-      const record = payload.record;
-      if (!record) return new Response("No record found", { status: 400 });
+    const isMessage =
+      payload.table === TABLE_MESSAGES_PREFIX ||
+      payload.table.startsWith(`${TABLE_MESSAGES_PREFIX}_`);
+    const isConnectionRequest = payload.table === TABLE_CONNECTION_REQUESTS;
+    const isTyping = payload.table === TABLE_TYPING_INDICATORS;
 
-      // 3. Initialize Supabase client to fetch the receiver's FCM token
-      const supabaseAdmin = createClient(
-        Deno.env.get("SUPABASE_URL") ?? "",
-        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
-      );
+    if (!isMessage && !isConnectionRequest && !isTyping) {
+      return new Response(`Ignored: table '${payload.table}'`, { status: 200 });
+    }
 
-      const receiverId = record.receiver_id;
-      const authorId = isConnectionRequest ? record.sender_id : record.author_id;
+    const record = payload.record;
+    if (!record) {
+      return new Response("No record in payload", { status: 400 });
+    }
 
-      if (!receiverId || !authorId) {
-        return new Response("Missing receiver_id or author_id", { status: 400 });
-      }
+    const receiverId = record.receiver_id;
+    const authorId = isConnectionRequest ? record.sender_id : record.author_id;
 
-      // Fetch the receiver's profile
-      const { data: receiverProfile, error: receiverError } = await supabaseAdmin
-        .from("profiles")
-        .select("fcm_token")
-        .eq("id", receiverId)
-        .single();
+    if (!receiverId || !authorId) {
+      return new Response("Missing receiver_id or author_id/sender_id", {
+        status: 400,
+      });
+    }
 
-      if (receiverError || !receiverProfile?.fcm_token) {
-        console.log("Receiver FCM token not found or error:", receiverError);
-        return new Response("Receiver has no FCM token", { status: 200 });
-      }
+    // 3. Initialize Supabase client
+    const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-      // Fetch the author's profile
-      const { data: authorProfile } = await supabaseAdmin
-        .from("profiles")
-        .select("full_name, username")
-        .eq("id", authorId)
-        .single();
+    const fcmToken = await getReceiverFcmToken(supabaseAdmin, receiverId);
+    if (!fcmToken) {
+      return new Response("Receiver FCM token not found", { status: 200 });
+    }
 
-      const callerName = authorProfile?.full_name || authorProfile?.username || "Someone";
-      
-      let title = "New Message";
-      let body = "";
+    const authorName = await getAuthorName(supabaseAdmin, authorId);
 
-      if (isConnectionRequest) {
-        title = "Connection Request";
-        body = `${callerName} wants to connect with you.`;
-      } else {
-        const isCall = record.text?.startsWith("CALL_INVITE_");
-        body = record.text?.startsWith("[IMAGE]:") ? "Sent an image" : record.text;
+    let messagePayload;
 
-        if (isCall) {
-          title = "Incoming Call";
-          body = `${callerName} is calling you.`;
-          // Send data-only payload for calls
-          const messagePayload = {
-            token: receiverProfile.fcm_token,
-            data: {
-              type: "CALL_INVITE",
-              id: record.id,
-              author_id: authorId,
-              caller_name: callerName,
-              text: record.text,
-            },
-            android: { priority: "high" },
-            apns: { payload: { aps: { "content-available": 1 } } },
-          };
-  
-          await admin.messaging().send(messagePayload);
-          console.log("Sent data-only push notification for Call");
-          return new Response("Call push sent", { status: 200 });
-        }
-      }
-
-      // 4. Send standard notification for chat messages & connection requests
-      const messagePayload = {
-        token: receiverProfile.fcm_token,
+    // 4. Construct the correct notification payload based on the event
+    if (isTyping) {
+      // This sends a silent, data-only push to trigger a UI update.
+      // Note: Using Supabase Realtime broadcast/presence is often more
+      // efficient for high-frequency events like typing indicators.
+      messagePayload = {
+        token: fcmToken,
+        data: {
+          type: NOTIFICATION_TYPE_TYPING,
+          author_id: authorId,
+          // Assuming the typing_indicators table has a chat_id
+          chat_id: String(record.chat_id),
+        },
+        android: { priority: "high" },
+        apns: { payload: { aps: { "content-available": 1 } } },
+      };
+      console.log(`Sending typing indicator push to ${receiverId}`);
+    } else if (isConnectionRequest) {
+      messagePayload = {
+        token: fcmToken,
         notification: {
-          title: isConnectionRequest ? title : callerName,
-          body: body,
+          title: "Connection Request",
+          body: `${authorName} wants to connect with you.`,
         },
         data: {
-          type: isConnectionRequest ? "CONNECTION_REQUEST" : "MESSAGE",
-          id: record.id || "0",
+          type: NOTIFICATION_TYPE_CONNECTION_REQUEST,
+          id: String(record.id),
           author_id: authorId,
         },
       };
+      console.log(`Sending connection request push to ${receiverId}`);
+    } else {
+      // isMessage
+      const isCall = record.text?.startsWith("CALL_INVITE_");
 
-      await admin.messaging().send(messagePayload);
-      console.log("Sent standard push notification for Message");
-
-      return new Response("Success", { status: 200 });
+      if (isCall) {
+        // Send data-only payload for calls for immediate client-side handling
+        messagePayload = {
+          token: fcmToken,
+          data: {
+            type: NOTIFICATION_TYPE_CALL_INVITE,
+            id: String(record.id),
+            author_id: authorId,
+            caller_name: authorName,
+            text: record.text,
+          },
+          android: { priority: "high" },
+          apns: { payload: { aps: { "content-available": 1 } } },
+        };
+        console.log(`Sending call invite push to ${receiverId}`);
+      } else {
+        // Standard notification for chat messages
+        const body = record.text?.startsWith("[IMAGE]:")
+          ? "Sent an image"
+          : record.text;
+        messagePayload = {
+          token: fcmToken,
+          notification: {
+            title: authorName,
+            body: body,
+          },
+          data: {
+            type: NOTIFICATION_TYPE_MESSAGE,
+            id: String(record.id),
+            author_id: authorId,
+          },
+        };
+        console.log(`Sending message push to ${receiverId}`);
+      }
     }
 
-    return new Response("Ignored payload", { status: 200 });
+    // 5. Send the notification
+    await admin.messaging().send(messagePayload);
+    console.log("Push notification sent successfully.");
+
+    return new Response("Success", { status: 200 });
   } catch (error) {
     console.error("Error processing webhook:", error);
-    return new Response(JSON.stringify({ error: error.message }), { status: 500, headers: { "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ error: error.message }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 });
