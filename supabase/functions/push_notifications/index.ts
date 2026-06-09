@@ -8,11 +8,9 @@ import admin from "npm:firebase-admin@11.11.0";
 // --- Constants ---
 const TABLE_CONNECTION_REQUESTS = "connection_requests";
 const TABLE_MESSAGES_PREFIX = "messages";
-const TABLE_TYPING_INDICATORS = "typing_indicators";
 const NOTIFICATION_TYPE_CALL_INVITE = "CALL_INVITE";
 const NOTIFICATION_TYPE_CONNECTION_REQUEST = "CONNECTION_REQUEST";
 const NOTIFICATION_TYPE_MESSAGE = "MESSAGE";
-const NOTIFICATION_TYPE_TYPING = "TYPING";
 
 // --- Environment Variable Validation ---
 const FIREBASE_SERVICE_ACCOUNT = Deno.env.get("FIREBASE_SERVICE_ACCOUNT");
@@ -101,9 +99,8 @@ serve(async (req) => {
       payload.table === TABLE_MESSAGES_PREFIX ||
       payload.table.startsWith(`${TABLE_MESSAGES_PREFIX}_`);
     const isConnectionRequest = payload.table === TABLE_CONNECTION_REQUESTS;
-    const isTyping = payload.table === TABLE_TYPING_INDICATORS;
 
-    if (!isMessage && !isConnectionRequest && !isTyping) {
+    if (!isMessage && !isConnectionRequest) {
       return new Response(`Ignored: table '${payload.table}'`, { status: 200 });
     }
 
@@ -134,23 +131,7 @@ serve(async (req) => {
     let messagePayload;
 
     // 4. Construct the correct notification payload based on the event
-    if (isTyping) {
-      // This sends a silent, data-only push to trigger a UI update.
-      // Note: Using Supabase Realtime broadcast/presence is often more
-      // efficient for high-frequency events like typing indicators.
-      messagePayload = {
-        token: fcmToken,
-        data: {
-          type: NOTIFICATION_TYPE_TYPING,
-          author_id: authorId,
-          // Assuming the typing_indicators table has a chat_id
-          chat_id: String(record.chat_id),
-        },
-        android: { priority: "high" },
-        apns: { payload: { aps: { "content-available": 1 } } },
-      };
-      console.log(`Sending typing indicator push to ${receiverId}`);
-    } else if (isConnectionRequest) {
+    if (isConnectionRequest) {
       messagePayload = {
         token: fcmToken,
         notification: {

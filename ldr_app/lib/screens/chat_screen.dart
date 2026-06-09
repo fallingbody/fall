@@ -269,6 +269,16 @@ class _ChatScreenState extends State<ChatScreen> {
         event: 'read_receipt',
         payload: {'message_id': messageId},
       );
+
+      // Send permanent receipt to guarantee delivery if offline
+      await Supabase.instance.client.from('messages').insert({
+        'id': const Uuid().v4(),
+        'author_id': _user.id,
+        'receiver_id': _partner.id,
+        'text': 'RECEIPT_SEEN:$messageId',
+        'status': 'sent',
+        'created_at': DateTime.now().toUtc().toIso8601String(),
+      });
     } catch (e) {
       debugPrint('Error updating seen status: $e');
     }

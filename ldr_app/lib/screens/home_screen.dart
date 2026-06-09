@@ -76,8 +76,51 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
 
-    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+    FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
       // Handle foreground notifications if needed
+      final data = message.data;
+      if (data['type'] == 'CALL_INVITE') {
+        final callerName = data['caller_name'] ?? 'Partner';
+        final roomId = data['id'] ?? '';
+        final text = data['text']?.toString() ?? '';
+        final isVideo = text.startsWith('CALL_INVITE_VIDEO:');
+        
+        activeCallsVideoStatus[roomId] = isVideo;
+
+        final callKitParams = CallKitParams(
+          id: roomId,
+          nameCaller: callerName,
+          appName: 'fall',
+          handle: isVideo ? 'Video Call' : 'Audio Call',
+          type: isVideo ? 1 : 0,
+          duration: 45000,
+          extra: <String, dynamic>{'roomId': roomId, 'isVideo': isVideo},
+          android: const AndroidParams(
+            isCustomNotification: true,
+            isShowLogo: false,
+            ringtonePath: 'system_ringtone_default',
+            backgroundColor: '#E91E63',
+            actionColor: '#4CAF50',
+          ),
+          ios: IOSParams(
+            iconName: 'CallKitLogo',
+            handleType: 'generic',
+            supportsVideo: isVideo,
+            maximumCallGroups: 1,
+            maximumCallsPerCallGroup: 1,
+            audioSessionMode: 'default',
+            audioSessionActive: true,
+            audioSessionPreferredSampleRate: 44100.0,
+            audioSessionPreferredIOBufferDuration: 0.005,
+            supportsDTMF: true,
+            supportsHolding: false,
+            supportsGrouping: false,
+            supportsUngrouping: false,
+            ringtonePath: 'system_ringtone_default',
+          ),
+        );
+        await FlutterCallkitIncoming.showCallkitIncoming(callKitParams);
+      }
     });
   }
 

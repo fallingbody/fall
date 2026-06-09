@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import '../partner_search_screen.dart';
 import '../../services/local_db_service.dart';
+import 'dart:async';
 
 class EngageTab extends StatefulWidget {
   const EngageTab({super.key});
@@ -17,11 +18,35 @@ class _EngageTabState extends State<EngageTab> {
   bool _isLoading = true;
   List<Map<String, dynamic>> _connections = [];
   Map<String, int> _messageCounts = {};
+  StreamSubscription? _localDbSub;
 
   @override
   void initState() {
     super.initState();
     _fetchConnections();
+    _listenToLocalDb();
+  }
+
+  void _listenToLocalDb() {
+    _localDbSub = LocalDbService().watchMessages().listen((_) {
+      if (!mounted) return;
+      _updateMessageCounts();
+    });
+  }
+
+  void _updateMessageCounts() {
+    final myId = _supabase.auth.currentUser?.id;
+    if (myId == null) return;
+    
+    final Map<String, int> counts = {};
+    for (var conn in _connections) {
+      final otherId = conn['other_user_id'];
+      counts[otherId] = LocalDbService().getMessageCountForPartner(myId, otherId);
+    }
+    
+    setState(() {
+      _messageCounts = counts;
+    });
   }
 
   Future<void> _fetchConnections() async {
@@ -99,6 +124,12 @@ class _EngageTabState extends State<EngageTab> {
         _isLoading = false;
       });
     }
+  }
+
+  @override
+  void dispose() {
+    _localDbSub?.cancel();
+    super.dispose();
   }
 
   @override
