@@ -536,6 +536,13 @@ class _ChatScreenState extends State<ChatScreen> {
     final fileName = '$msgId.$fileExt';
 
     try {
+      // Show loading snackbar
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Uploading image...'), duration: Duration(seconds: 1)),
+        );
+      }
+
       // Upload to Supabase temporary drop-box bucket
       await Supabase.instance.client.storage.from('chat_media').uploadBinary(fileName, bytes);
       final publicUrl = Supabase.instance.client.storage.from('chat_media').getPublicUrl(fileName);
@@ -557,9 +564,25 @@ class _ChatScreenState extends State<ChatScreen> {
       // 2. Insert queue URL for partner
       await Supabase.instance.client.from('messages').insert(msgData);
       
+      // 3. Broadcast for 0-latency
+      try {
+        await _chatChannel?.send(
+          type: RealtimeListenTypes.broadcast,
+          event: 'chat_payload',
+          payload: { 'message': msgData },
+        );
+      } catch (e) {
+        debugPrint('Broadcast failed: $e');
+      }
+
       _loadLocalMessages();
     } catch (e) {
       debugPrint('Upload error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Upload failed. Does "chat_media" bucket exist? Error: $e')),
+        );
+      }
     }
   }
 
@@ -591,6 +614,13 @@ class _ChatScreenState extends State<ChatScreen> {
     final fileName = '$msgId.$fileExt';
 
     try {
+      // Show loading snackbar
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Uploading sticker...'), duration: Duration(seconds: 1)),
+        );
+      }
+
       // 1. Upload to Supabase drop-box
       await Supabase.instance.client.storage
           .from('chat_media')
@@ -616,12 +646,23 @@ class _ChatScreenState extends State<ChatScreen> {
       // 4. Send to Supabase queue
       await Supabase.instance.client.from('messages').insert(msgData);
 
+      // 5. Broadcast for 0-latency
+      try {
+        await _chatChannel?.send(
+          type: RealtimeListenTypes.broadcast,
+          event: 'chat_payload',
+          payload: { 'message': msgData },
+        );
+      } catch (e) {
+        debugPrint('Broadcast failed: $e');
+      }
+
       _loadLocalMessages();
     } catch (e) {
       debugPrint('Error sending keyboard image: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to send image')),
+          SnackBar(content: Text('Failed to send image. Does "chat_media" bucket exist? Error: $e')),
         );
       }
     }
