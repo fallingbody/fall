@@ -57,6 +57,11 @@ class LocalDbService {
     return _messagesBox.watch();
   }
 
+  /// Check if a message already exists locally
+  bool messageExists(String id) {
+    return _messagesBox.containsKey(id);
+  }
+
   /// Get the total number of unread messages from a specific partner
   int getMessageCountForPartner(String myId, String partnerId) {
     int count = 0;

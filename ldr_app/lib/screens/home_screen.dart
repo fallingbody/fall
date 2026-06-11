@@ -143,8 +143,8 @@ class _HomeScreenState extends State<HomeScreen> {
         if (row['receiver_id'] == myId) {
           final msgId = row['id'];
 
-          if (_processedMessages.contains(msgId)) {
-            // Already processed this message in a previous stream event.
+          if (_processedMessages.contains(msgId) || LocalDbService().messageExists(msgId)) {
+            // Already processed this message in a previous stream event or previous app session.
             // Just try to ensure it's deleted and skip processing.
             try {
               await Supabase.instance.client.from('messages').delete().eq('id', msgId);
