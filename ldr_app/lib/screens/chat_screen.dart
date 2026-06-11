@@ -948,14 +948,12 @@ class _ChatScreenState extends State<ChatScreen> {
                           await Supabase.instance.client.from('messages').insert(callData);
                           _loadLocalMessages();
 
-                          if (context.mounted) {
-                            Navigator.push(context, MaterialPageRoute(builder: (context) => VideoCallScreen(
-                              roomName: widget.connection!['connection_id'],
-                              participantName: _user.firstName ?? 'Me',
-                              participantId: _user.id,
-                              isVideoCall: true,
-                            )));
-                          }
+                          globalCallState.value = CallData(
+                            roomId: widget.connection!['connection_id'],
+                            callerName: _partner.firstName ?? 'Partner',
+                            isVideo: true,
+                            isCaller: true,
+                          );
                         }
                       ),
                       IconButton(
@@ -980,14 +978,12 @@ class _ChatScreenState extends State<ChatScreen> {
                           await Supabase.instance.client.from('messages').insert(callData);
                           _loadLocalMessages();
 
-                          if (context.mounted) {
-                            Navigator.push(context, MaterialPageRoute(builder: (context) => VideoCallScreen(
-                              roomName: widget.connection!['connection_id'],
-                              participantName: _user.firstName ?? 'Me',
-                              participantId: _user.id,
-                              isVideoCall: false,
-                            )));
-                          }
+                          globalCallState.value = CallData(
+                            roomId: widget.connection!['connection_id'],
+                            callerName: _partner.firstName ?? 'Partner',
+                            isVideo: false,
+                            isCaller: true,
+                          );
                         }
                       ),
                     ],

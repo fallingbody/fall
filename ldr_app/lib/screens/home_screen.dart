@@ -36,6 +36,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final Set<String> _processedCalls = {};
   final Set<String> _processedMessages = {};
   bool _hasPendingRequests = false;
+  final Set<String> _shownCallDialogs = {};
 
   @override
   void initState() {
@@ -376,10 +377,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return Stack(
-      children: [
-        Scaffold(
-          backgroundColor: isDark ? Colors.black : Colors.white,
+    return Scaffold(
+      backgroundColor: isDark ? Colors.black : Colors.white,
       appBar: AppBar(
         title: Text(
           'fall',

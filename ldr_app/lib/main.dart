@@ -11,8 +11,8 @@ import 'screens/calendar_screen.dart';
 import 'screens/memories_screen.dart';
 import 'screens/call_screen.dart';
 import 'screens/achievements_screen.dart';
-import 'screens/tabs/games_tab.dart';
-import 'screens/tabs/settings_tab.dart';
+import 'screens/games_screen.dart';
+import 'screens/settings_screen.dart';
 import 'screens/global_call_overlay.dart';
 import 'services/call_state.dart';
 
@@ -85,7 +85,7 @@ void _setupGlobalCallKitListener() {
     if (event is CallEventActionCallAccept) {
       final roomId = event.id; // Correctly mapped to roomId
       final isVideo = activeCallsVideoStatus[roomId] ?? true;
-      final callerName = event.body['nameCaller'] ?? 'Partner';
+      final callerName = 'Partner'; // Extracted from DB later if needed
       
       globalCallState.value = CallData(
         roomId: roomId,
