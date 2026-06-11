@@ -11,6 +11,7 @@ class SignalingService {
   final String localParticipantId;
 
   SignalingMessageCallback? onMessage;
+  Timer? pingTimer;
 
   SignalingService({required this.roomName, required this.localParticipantId});
 
@@ -32,8 +33,12 @@ class SignalingService {
 
     await _channel!.subscribe((status, [error]) {
       if (status == RealtimeSubscribeStatus.subscribed) {
-        // Announce our presence so the other peer knows to send an offer if they are already here
         sendMessage('peer_joined', {});
+        
+        // Aggressively ping until the other side responds
+        pingTimer = Timer.periodic(const Duration(seconds: 2), (timer) {
+          sendMessage('peer_joined', {});
+        });
       }
     });
   }
@@ -52,6 +57,7 @@ class SignalingService {
   }
 
   void disconnect() {
+    pingTimer?.cancel();
     _channel?.unsubscribe();
     _channel = null;
   }

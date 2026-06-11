@@ -45,6 +45,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   late bool _isVideoMode;
 
   bool _hasRemoteTrack = false;
+  bool _offerCreated = false;
 
   @override
   void initState() {
@@ -158,10 +159,16 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   }
 
   void _handleSignalingMessage(String type, Map<String, dynamic> data, String senderId) async {
+    // If we receive ANY signaling message from the peer, they are present! We can stop pinging.
+    _signaling?.pingTimer?.cancel();
+
     switch (type) {
       case 'peer_joined':
-        // The other peer joined, initiate the offer
-        _createOffer();
+        // The other peer joined, initiate the offer if we haven't already
+        if (!_offerCreated) {
+          _offerCreated = true;
+          _createOffer();
+        }
         break;
       case 'offer':
         final pc = await _createPeerConnection();
