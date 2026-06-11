@@ -35,6 +35,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final Set<String> _processedCalls = {};
   final Set<String> _processedMessages = {};
   bool _hasPendingRequests = false;
+  final Set<String> _shownCallDialogs = {};
 
   @override
   void initState() {
@@ -120,6 +121,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         );
         await FlutterCallkitIncoming.showCallkitIncoming(callKitParams);
+        _showIncomingCallDialog(roomId, callerName, isVideo);
       }
     });
   }
@@ -259,6 +261,8 @@ class _HomeScreenState extends State<HomeScreen> {
       callerName = callerRes['full_name'] ?? callerRes['username'] ?? 'Partner';
     } catch (_) {}
 
+    _showIncomingCallDialog(roomId, callerName, isVideo);
+
     CallKitParams callKitParams = CallKitParams(
       id: roomId, // Send the explicit roomId!
       nameCaller: callerName,
@@ -293,6 +297,66 @@ class _HomeScreenState extends State<HomeScreen> {
     );
 
     await FlutterCallkitIncoming.showCallkitIncoming(callKitParams);
+  }
+
+  void _showIncomingCallDialog(String roomId, String callerName, bool isVideo) {
+    if (_shownCallDialogs.contains(roomId)) return;
+    _shownCallDialogs.add(roomId);
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        final isDark = Theme.of(context).brightness == Brightness.dark;
+        return AlertDialog(
+          backgroundColor: isDark ? Colors.grey.shade900 : Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Column(
+            children: [
+              CircleAvatar(
+                radius: 30,
+                backgroundColor: Colors.pinkAccent.withOpacity(0.2),
+                child: Icon(isVideo ? Icons.videocam : Icons.call, color: Colors.pinkAccent, size: 30),
+              ),
+              const SizedBox(height: 16),
+              Text('Incoming Call', style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 18)),
+            ],
+          ),
+          content: Text(
+            '$callerName is calling you...',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: isDark ? Colors.grey.shade300 : Colors.grey.shade800, fontSize: 16),
+          ),
+          actionsAlignment: MainAxisAlignment.spaceEvenly,
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                FlutterCallkitIncoming.endAllCalls();
+              },
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: const Text('Decline', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                FlutterCallkitIncoming.endAllCalls();
+                
+                final myId = Supabase.instance.client.auth.currentUser?.id ?? '';
+                Navigator.push(context, MaterialPageRoute(builder: (context) => VideoCallScreen(
+                  roomName: roomId,
+                  participantName: 'Me',
+                  participantId: myId,
+                  isVideoCall: isVideo,
+                )));
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
+              child: const Text('Accept', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   @override

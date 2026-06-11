@@ -35,6 +35,7 @@ class _ChatScreenState extends State<ChatScreen> {
   types.Message? _editingMessage;
   bool _isEditing = false;
   RealtimeChannel? _chatChannel;
+  List<types.User> _typingUsers = [];
 
   // Real-time status data
   Timer? _statusTimer;
@@ -50,6 +51,14 @@ class _ChatScreenState extends State<ChatScreen> {
     _checkSupabase();
     _startStatusTracking();
     _setupChatChannel();
+    _textController.addListener(_onTextChanged);
+  }
+
+  void _onTextChanged() {
+    _chatChannel?.sendBroadcastMessage(
+      event: 'typing',
+      payload: {'isTyping': _textController.text.isNotEmpty},
+    );
   }
 
   void _setupChatChannel() {
@@ -62,6 +71,26 @@ class _ChatScreenState extends State<ChatScreen> {
       if (messageId != null) {
         LocalDbService().updateMessageStatus(messageId, 'seen');
         _loadLocalMessages(); // Reload UI
+      }
+    }).onBroadcast(event: 'chat_payload', callback: (payload) async {
+      final msgData = payload['message'] as Map<String, dynamic>;
+      msgData['status'] = 'delivered';
+      await LocalDbService().saveMessage(msgData);
+      
+      await Supabase.instance.client.from('messages').insert({
+        'id': const Uuid().v4(),
+        'author_id': _user.id,
+        'receiver_id': msgData['author_id'],
+        'text': 'RECEIPT_DELIVERED:${msgData['id']}',
+        'status': 'sent',
+        'created_at': DateTime.now().toUtc().toIso8601String(),
+      });
+    }).onBroadcast(event: 'typing', callback: (payload) {
+      final isTyping = payload['isTyping'] as bool;
+      if (mounted) {
+        setState(() {
+          _typingUsers = isTyping ? [_partner] : [];
+        });
       }
     }).subscribe();
   }
@@ -172,21 +201,26 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  void _loadLocalMessages() {
+  void _loadLocalMessages() async {
     final localData = LocalDbService().getMessagesForConnection(_user.id, _partner.id);
     
+    bool needsUpdate = false;
+    for (var row in localData) {
+      if (row['author_id'] == _partner.id && row['status'] != 'seen') {
+        _sendSeenReceipt(row['id']);
+        await LocalDbService().updateMessageStatus(row['id'], 'seen');
+        needsUpdate = true;
+      }
+    }
+    
+    if (needsUpdate) return; // Hive stream will trigger re-render
+
     final mappedMessages = localData.map((row) {
       types.Status msgStatus = types.Status.sent;
       if (row['status'] == 'seen') {
         msgStatus = types.Status.seen;
       } else if (row['status'] == 'delivered') {
         msgStatus = types.Status.delivered;
-      }
-
-      if (row['author_id'] == _partner.id && row['status'] != 'seen') {
-        _sendSeenReceipt(row['id']);
-        LocalDbService().updateMessageStatus(row['id'], 'seen');
-        msgStatus = types.Status.seen;
       }
 
       String createdAtStr = row['created_at'].toString();
@@ -343,6 +377,12 @@ class _ChatScreenState extends State<ChatScreen> {
 
       // 1. Save to local disk immediately
       await LocalDbService().saveMessage(msgData);
+
+      // Instantly broadcast via P2P channel
+      _chatChannel?.sendBroadcastMessage(
+        event: 'chat_payload',
+        payload: {'message': msgData},
+      );
 
       // 2. Insert into Supabase queue
       await Supabase.instance.client.from('messages').insert({
@@ -917,6 +957,7 @@ class _ChatScreenState extends State<ChatScreen> {
         user: _user,
         showUserAvatars: true,
         showUserNames: true,
+        typingIndicatorOptions: TypingIndicatorOptions(typingUsers: _typingUsers),
         customBottomWidget: _buildCustomInput(),
         customMessageBuilder: (types.CustomMessage msg, {required int messageWidth}) {
           if (msg.metadata?['type'] == 'call_invite') {

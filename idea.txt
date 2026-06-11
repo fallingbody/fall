@@ -84,14 +84,14 @@
 
 ### 13. Memory Hub
 
-* **Tech Stack:** Supabase Storage.
-* **Open Source Lib:** `image_picker`.
+* **Tech Stack:** Supabase Storage, Table Calendar.
+* **Open Source Lib:** `image_picker`, `table_calendar`.
 * **Language:** Dart.
-* **Implementation:** Use `image_picker` to upload photos to Supabase Storage; retrieve URLs to populate a grid view in the app, serving as a shared digital photo album.
+* **Implementation:** Use a calendar widget so the user can select a day, write daily notes, and upload/view photos via Supabase Storage for that specific day.
 
-### 14. Calendar
+### 14. Achievements
 
 * **Tech Stack:** Supabase.
-* **Open Source Lib:** `table_calendar`.
+* **Open Source Lib:** None.
 * **Language:** Dart.
-* **Implementation:** Use `table_calendar` to display events fetched from a shared PostgreSQL table in Supabase, where both partners have read/write access.
+* **Implementation:** Display a list of shared accomplishments from the `achievements` table.

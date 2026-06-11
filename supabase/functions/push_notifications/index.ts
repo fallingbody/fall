@@ -160,8 +160,17 @@ serve(async (req) => {
             caller_name: authorName,
             text: record.text,
           },
-          android: { priority: "high" },
-          apns: { payload: { aps: { "content-available": 1 } } },
+          android: { 
+            priority: "high",
+            ttl: 0,
+          },
+          apns: { 
+            headers: {
+              "apns-priority": "10",
+              "apns-expiration": "0"
+            },
+            payload: { aps: { "content-available": 1 } } 
+          },
         };
         console.log(`Sending call invite push to ${receiverId}`);
       } else {

@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'login_screen.dart';
 import 'home_screen.dart';
 import 'partner_search_screen.dart';
+import 'permissions_screen.dart';
 
 class AuthWrapper extends StatefulWidget {
   const AuthWrapper({super.key});
@@ -15,6 +17,7 @@ class _AuthWrapperState extends State<AuthWrapper> {
   bool _isLoading = true;
   bool _isAuthenticated = false;
   bool _hasPartner = false;
+  bool _hasSeenPermissions = false;
 
   @override
   void initState() {
@@ -47,6 +50,9 @@ class _AuthWrapperState extends State<AuthWrapper> {
       return;
     }
 
+    final prefs = await SharedPreferences.getInstance();
+    final hasSeen = prefs.getBool('has_seen_permissions') ?? false;
+
     // User is logged in, check if they have a partner
     try {
       final res = await Supabase.instance.client
@@ -59,6 +65,7 @@ class _AuthWrapperState extends State<AuthWrapper> {
         setState(() {
           _isAuthenticated = true;
           _hasPartner = res != null && res['partner_id'] != null;
+          _hasSeenPermissions = hasSeen;
           _isLoading = false;
         });
       }
@@ -68,6 +75,7 @@ class _AuthWrapperState extends State<AuthWrapper> {
         setState(() {
           _isAuthenticated = true;
           _hasPartner = false;
+          _hasSeenPermissions = hasSeen;
           _isLoading = false;
         });
       }
@@ -86,6 +94,16 @@ class _AuthWrapperState extends State<AuthWrapper> {
 
     if (!_isAuthenticated) {
       return const LoginScreen();
+    }
+
+    if (!_hasSeenPermissions) {
+      return PermissionsScreen(
+        onDone: () {
+          setState(() {
+            _hasSeenPermissions = true;
+          });
+        },
+      );
     }
 
     return const HomeScreen();
