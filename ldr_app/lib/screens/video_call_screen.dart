@@ -1,10 +1,8 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:livekit_client/livekit_client.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_background/flutter_background.dart';
-import '../services/livekit_service.dart';
+import '../services/signaling_service.dart';
 
 class VideoCallScreen extends StatefulWidget {
   final String roomName;
@@ -25,9 +23,14 @@ class VideoCallScreen extends StatefulWidget {
 }
 
 class _VideoCallScreenState extends State<VideoCallScreen> {
-  late final Room _room;
-  EventsListener<RoomEvent>? _listener;
+  final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
+  final RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
   
+  RTCPeerConnection? _peerConnection;
+  MediaStream? _localStream;
+  MediaStream? _remoteStream;
+  SignalingService? _signaling;
+
   bool _isConnecting = true;
   bool _micMuted = false;
   late bool _videoMuted;
@@ -35,7 +38,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   bool _isScreenSharing = false;
   late bool _isVideoMode;
 
-  Participant? _remoteParticipant;
+  bool _hasRemoteTrack = false;
 
   @override
   void initState() {
@@ -43,129 +46,207 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     _isVideoMode = widget.isVideoCall;
     _videoMuted = !_isVideoMode;
     _speakerOn = _isVideoMode;
-    _connect();
+    _initWebrtc();
   }
 
-  Future<void> _connect() async {
+  Future<void> _initWebrtc() async {
+    await _localRenderer.initialize();
+    await _remoteRenderer.initialize();
+
+    _signaling = SignalingService(
+      roomName: widget.roomName,
+      localParticipantId: widget.participantId,
+    );
+    _signaling!.onMessage = _handleSignalingMessage;
+
+    await _getUserMedia();
+    await _signaling!.connect();
+
+    setState(() {
+      _isConnecting = false;
+    });
+  }
+
+  Future<void> _getUserMedia() async {
+    final Map<String, dynamic> mediaConstraints = {
+      'audio': true,
+      'video': {
+        'facingMode': 'user',
+      }
+    };
+
     try {
-      final token = LiveKitService.generateToken(roomName: widget.roomName, participantName: widget.participantName, participantId: widget.participantId);
-      final url = dotenv.env['LIVEKIT_URL'] ?? '';
+      _localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
+      _localRenderer.srcObject = _localStream;
 
-      if (url.isEmpty) throw Exception('LIVEKIT_URL is not set in .env');
-
-      _room = Room();
-      _listener = _room.createListener();
-      
-      _listener!.on<RoomEvent>((event) {
-        if (event is ParticipantConnectedEvent) {
-          setState(() {
-            _remoteParticipant = event.participant;
-          });
-        } else if (event is ParticipantDisconnectedEvent) {
-          setState(() {
-            if (_remoteParticipant?.sid == event.participant.sid) {
-              _remoteParticipant = null;
-            }
-          });
-        } else if (event is TrackSubscribedEvent) {
-          setState(() {});
-        } else if (event is TrackUnsubscribedEvent) {
-          setState(() {});
-        } else if (event is LocalTrackPublishedEvent) {
-          setState(() {});
-        } else if (event is LocalTrackUnpublishedEvent) {
-          setState(() {});
-        } else if (event is DataReceivedEvent) {
-          try {
-            final payload = utf8.decode(event.data);
-            if (payload == 'VIDEO_REQUEST') {
-              _showVideoRequestDialog();
-            } else if (payload == 'VIDEO_ACCEPT') {
-              setState(() {
-                _isVideoMode = true;
-              });
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Partner accepted video request!')));
-              }
-            }
-          } catch (e) {
-            debugPrint('Error parsing data channel: $e');
-          }
-        }
-      });
-
-      await _room.connect(url, token);
-      
-      await _room.localParticipant?.setCameraEnabled(_isVideoMode);
-      await _room.localParticipant?.setMicrophoneEnabled(true);
-      await Hardware.instance.setSpeakerphoneOn(_speakerOn);
-
-      // Check if someone is already in the room
-      if (_room.remoteParticipants.isNotEmpty) {
-        _remoteParticipant = _room.remoteParticipants.values.first;
+      // Apply initial mute states
+      if (_localStream!.getAudioTracks().isNotEmpty) {
+        _localStream!.getAudioTracks()[0].enabled = !_micMuted;
+      }
+      if (_localStream!.getVideoTracks().isNotEmpty) {
+        _localStream!.getVideoTracks()[0].enabled = !_videoMuted;
       }
 
-      setState(() {
-        _isConnecting = false;
-      });
+      await Helper.setSpeakerphoneOn(_speakerOn);
     } catch (e) {
-      debugPrint('Failed to connect to LiveKit: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to connect: $e')));
-        Navigator.pop(context);
+      debugPrint('Failed to get user media: $e');
+    }
+  }
+
+  Future<RTCPeerConnection> _createPeerConnection() async {
+    if (_peerConnection != null) return _peerConnection!;
+
+    final configuration = {
+      'iceServers': [
+        {'urls': 'stun:stun.l.google.com:19302'},
+        {'urls': 'stun:stun1.l.google.com:19302'},
+      ]
+    };
+
+    _peerConnection = await createPeerConnection(configuration);
+
+    _peerConnection!.onIceCandidate = (candidate) {
+      _signaling!.sendMessage('ice_candidate', {
+        'candidate': candidate.candidate,
+        'sdpMid': candidate.sdpMid,
+        'sdpMLineIndex': candidate.sdpMLineIndex,
+      });
+    };
+
+    _peerConnection!.onAddStream = (stream) {
+      _remoteStream = stream;
+      _remoteRenderer.srcObject = _remoteStream;
+      setState(() {
+        _hasRemoteTrack = stream.getVideoTracks().isNotEmpty && stream.getVideoTracks().first.enabled;
+      });
+    };
+
+    _peerConnection!.onTrack = (event) {
+      if (event.track.kind == 'video') {
+        _remoteStream = event.streams[0];
+        _remoteRenderer.srcObject = _remoteStream;
+        setState(() {
+          _hasRemoteTrack = true;
+        });
       }
+    };
+
+    if (_localStream != null) {
+      _localStream!.getTracks().forEach((track) {
+        _peerConnection!.addTrack(track, _localStream!);
+      });
+    }
+
+    return _peerConnection!;
+  }
+
+  Future<void> _createOffer() async {
+    final pc = await _createPeerConnection();
+    final offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    
+    _signaling!.sendMessage('offer', {
+      'sdp': offer.sdp,
+      'type': offer.type,
+    });
+  }
+
+  void _handleSignalingMessage(String type, Map<String, dynamic> data, String senderId) async {
+    switch (type) {
+      case 'peer_joined':
+        // The other peer joined, initiate the offer
+        _createOffer();
+        break;
+      case 'offer':
+        final pc = await _createPeerConnection();
+        await pc.setRemoteDescription(RTCSessionDescription(data['sdp'], data['type']));
+        final answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        _signaling!.sendMessage('answer', {
+          'sdp': answer.sdp,
+          'type': answer.type,
+        });
+        break;
+      case 'answer':
+        if (_peerConnection != null) {
+          await _peerConnection!.setRemoteDescription(RTCSessionDescription(data['sdp'], data['type']));
+        }
+        break;
+      case 'ice_candidate':
+        if (_peerConnection != null) {
+          await _peerConnection!.addCandidate(RTCIceCandidate(
+            data['candidate'],
+            data['sdpMid'],
+            data['sdpMLineIndex'],
+          ));
+        }
+        break;
+      case 'VIDEO_REQUEST':
+        _showVideoRequestDialog();
+        break;
+      case 'VIDEO_ACCEPT':
+        setState(() {
+          _isVideoMode = true;
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Partner accepted video request!')));
+        }
+        break;
     }
   }
 
   @override
   void dispose() {
-    _listener?.dispose();
-    _room.disconnect();
-    _room.dispose();
+    _localStream?.dispose();
+    _remoteStream?.dispose();
+    _peerConnection?.close();
+    _peerConnection?.dispose();
+    _localRenderer.dispose();
+    _remoteRenderer.dispose();
+    _signaling?.disconnect();
     super.dispose();
   }
 
-  void _toggleMic() async {
-    if (_room.localParticipant == null) return;
-    await _room.localParticipant!.setMicrophoneEnabled(_micMuted);
-    setState(() => _micMuted = !_micMuted);
+  void _toggleMic() {
+    if (_localStream != null && _localStream!.getAudioTracks().isNotEmpty) {
+      final track = _localStream!.getAudioTracks()[0];
+      track.enabled = _micMuted;
+      setState(() => _micMuted = !_micMuted);
+    }
   }
 
   void _toggleVideo() async {
-    if (_room.localParticipant == null) return;
-
     // If in audio mode and trying to turn on video
     if (!_isVideoMode && _videoMuted) {
-      // 1. Turn on local camera
-      await _room.localParticipant!.setCameraEnabled(true);
+      if (_localStream != null && _localStream!.getVideoTracks().isNotEmpty) {
+        _localStream!.getVideoTracks()[0].enabled = true;
+      }
+      
+      await Helper.setSpeakerphoneOn(true);
 
-      // 2. Turn on speaker
-      await Hardware.instance.setSpeakerphoneOn(true);
-
-      // 3. Send request to partner
-      await _room.localParticipant?.publishData(utf8.encode('VIDEO_REQUEST'));
+      _signaling?.sendMessage('VIDEO_REQUEST', {});
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sent video request to partner...')));
       }
 
-      // 4. Update local state
       setState(() {
-        _videoMuted = false; // Video is now ON
-        _speakerOn = true;   // Speaker is now ON
+        _videoMuted = false;
+        _speakerOn = true;
       });
       return;
     }
 
-    // This part handles turning video on/off during an established video call
     final bool newMutedState = !_videoMuted;
-    await _room.localParticipant!.setCameraEnabled(!newMutedState);
+    if (_localStream != null && _localStream!.getVideoTracks().isNotEmpty) {
+      _localStream!.getVideoTracks()[0].enabled = !newMutedState;
+    }
 
     setState(() => _videoMuted = newMutedState);
   }
 
   void _toggleSpeaker() async {
     bool nextState = !_speakerOn;
-    await Hardware.instance.setSpeakerphoneOn(nextState);
+    await Helper.setSpeakerphoneOn(nextState);
     setState(() => _speakerOn = nextState);
   }
 
@@ -177,18 +258,14 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         notificationImportance: AndroidNotificationImportance.normal,
         notificationIcon: AndroidResource(name: 'ic_launcher', defType: 'mipmap'),
       );
-      // Ensure initialization happens before enabling execution. This is safer as it
-      // ensures the plugin is initialized in the current app lifecycle.
       await FlutterBackground.initialize(androidConfig: config);
-
-      // The initialize() call handles asking for permissions if not yet granted.
       return await FlutterBackground.enableBackgroundExecution();
     }
     return true;
   }
 
   void _toggleScreenShare() async {
-    if (_room.localParticipant == null) return;
+    if (_peerConnection == null) return;
     bool nextState = !_isScreenSharing;
     try {
       if (nextState) {
@@ -196,13 +273,35 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         if (!bgSuccess) {
           throw Exception('Failed to start foreground service. Please grant permissions.');
         }
-      }
 
-      await _room.localParticipant!.setScreenShareEnabled(nextState, captureScreenAudio: true);
-      
-      // Fix Browser Audio Ducking on Android:
-      if (WebRTC.platformIsAndroid) {
-        if (nextState) {
+        final Map<String, dynamic> mediaConstraints = {
+          'audio': true,
+          'video': true,
+        };
+        
+        final screenStream = await navigator.mediaDevices.getDisplayMedia(mediaConstraints);
+        
+        // Replace video track
+        final oldVideoTrack = _localStream?.getVideoTracks().first;
+        final newVideoTrack = screenStream.getVideoTracks().first;
+        
+        if (oldVideoTrack != null) {
+          final senders = await _peerConnection!.getSenders();
+          for (var sender in senders) {
+            if (sender.track?.kind == 'video') {
+              await sender.replaceTrack(newVideoTrack);
+              break;
+            }
+          }
+        }
+        
+        _localRenderer.srcObject = screenStream;
+        
+        newVideoTrack.onEnded = () {
+           _stopScreenShare();
+        };
+
+        if (WebRTC.platformIsAndroid) {
           await Helper.setAndroidAudioConfiguration(
             AndroidAudioConfiguration(
               manageAudioFocus: false,
@@ -211,10 +310,9 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
               androidAudioStreamType: AndroidAudioStreamType.music,
             ),
           );
-        } else {
-          await Helper.setAndroidAudioConfiguration(AndroidAudioConfiguration.communication);
-          await FlutterBackground.disableBackgroundExecution();
         }
+      } else {
+        _stopScreenShare();
       }
       
       setState(() => _isScreenSharing = nextState);
@@ -229,6 +327,28 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     }
   }
 
+  void _stopScreenShare() async {
+     final senders = await _peerConnection!.getSenders();
+     final cameraVideoTrack = _localStream?.getVideoTracks().first;
+     
+     if (cameraVideoTrack != null) {
+        for (var sender in senders) {
+          if (sender.track?.kind == 'video') {
+            await sender.replaceTrack(cameraVideoTrack);
+            break;
+          }
+        }
+     }
+     
+     _localRenderer.srcObject = _localStream;
+     
+     if (WebRTC.platformIsAndroid) {
+        await Helper.setAndroidAudioConfiguration(AndroidAudioConfiguration.communication);
+        await FlutterBackground.disableBackgroundExecution();
+     }
+     setState(() => _isScreenSharing = false);
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isConnecting) {
@@ -238,40 +358,12 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       );
     }
 
-    // Get remote video track (prioritize screen share if available)
-    VideoTrack? remoteVideoTrack;
-    if (_remoteParticipant != null) {
-      // 1. Try to find a screen share track first
-      final screenSharePubs = _remoteParticipant!.videoTrackPublications.where((p) => p.source == TrackSource.screenShareVideo && p.track != null).toList();
-      
-      if (screenSharePubs.isNotEmpty) {
-        remoteVideoTrack = screenSharePubs.first.track as VideoTrack;
-      } else {
-        // 2. Fallback to camera track
-        final cameraPubs = _remoteParticipant!.videoTrackPublications.where((p) => p.track != null).toList();
-        if (cameraPubs.isNotEmpty) {
-          remoteVideoTrack = cameraPubs.first.track as VideoTrack;
-        }
-      }
-    }
-
-    // Get local video track
-    VideoTrack? localVideoTrack;
-    if (_room.localParticipant != null) {
-      for (var pub in _room.localParticipant!.videoTrackPublications) {
-        if (pub.track is VideoTrack) {
-          localVideoTrack = pub.track as VideoTrack;
-          break;
-        }
-      }
-    }
-
     return Scaffold(
       backgroundColor: Colors.black,
       body: Stack(
         children: [
           // Background for Audio Call
-          if (!_isVideoMode && remoteVideoTrack == null)
+          if (!_isVideoMode && !_hasRemoteTrack)
             Positioned.fill(
               child: Container(
                 decoration: BoxDecoration(
@@ -299,16 +391,16 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
                     const SizedBox(height: 24),
                     Text('Audio Call with ${widget.participantName}', style: const TextStyle(color: Colors.white, fontSize: 20)),
                     const SizedBox(height: 8),
-                    Text(_isConnecting ? 'Connecting...' : 'Connected', style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 16)),
+                    Text(_remoteStream != null ? 'Connected' : 'Connecting...', style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 16)),
                   ],
                 ),
               ),
             ),
 
           // Remote Video (Full Screen)
-          if (remoteVideoTrack != null)
+          if (_hasRemoteTrack)
             Positioned.fill(
-              child: VideoTrackRenderer(remoteVideoTrack, fit: VideoViewFit.contain),
+              child: RTCVideoView(_remoteRenderer, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain),
             )
           else if (!_videoMuted)
             const Center(
@@ -316,7 +408,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
             ),
 
           // Local Video (PiP)
-          if (localVideoTrack != null && !_videoMuted)
+          if (_localStream != null && !_videoMuted)
             Positioned(
               right: 20,
               top: 60,
@@ -326,7 +418,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
                 borderRadius: BorderRadius.circular(12),
                 child: Container(
                   color: Colors.grey.shade900,
-                  child: VideoTrackRenderer(localVideoTrack, fit: VideoViewFit.cover),
+                  child: RTCVideoView(_localRenderer, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover, mirror: !_isScreenSharing),
                 ),
               ),
             ),
@@ -412,7 +504,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
           TextButton(
             onPressed: () {
               Navigator.pop(context);
-              _room.localParticipant?.publishData(utf8.encode('VIDEO_ACCEPT'));
+              _signaling?.sendMessage('VIDEO_ACCEPT', {});
               setState(() {
                 _isVideoMode = true;
               });

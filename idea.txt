@@ -28,10 +28,10 @@
 
 ### 5. Inbuilt Call Feature (Audio/Video)
 
-* **Tech Stack:** LiveKit (Self-hosted).
-* **Open Source Lib:** `livekit_client`.
+* **Tech Stack:** WebRTC + Supabase Realtime (Signaling).
+* **Open Source Lib:** `flutter_webrtc`.
 * **Language:** Dart.
-* **Implementation:** Deploy the open-source LiveKit server on an Oracle "Always Free" instance; use `livekit_client` in Flutter to manage Peer-to-Peer video and audio streams.
+* **Implementation:** Use `flutter_webrtc` for 100% free Peer-to-Peer (P2P) video, audio, and screen sharing streams. Exchange SDP offers and ICE candidates via Supabase Realtime Broadcast channels.
 
 ### 6. Small Gaming Zone
 
