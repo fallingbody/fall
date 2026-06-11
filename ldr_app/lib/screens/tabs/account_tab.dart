@@ -22,10 +22,10 @@ class _AccountTabState extends State<AccountTab> {
   Future<void> _loadProfile() async {
     final user = Supabase.instance.client.auth.currentUser;
     if (user != null) {
-      final res = await Supabase.instance.client.from('profiles').select('name').eq('id', user.id).maybeSingle();
-      if (res != null && res['name'] != null && mounted) {
+      final res = await Supabase.instance.client.from('profiles').select('full_name, username').eq('id', user.id).maybeSingle();
+      if (res != null && mounted) {
         setState(() {
-          _userName = res['name'];
+          _userName = res['full_name'] ?? res['username'] ?? 'User';
         });
       }
     }
@@ -45,7 +45,7 @@ class _AccountTabState extends State<AccountTab> {
               if (txtCtrl.text.trim().isEmpty) return;
               final user = Supabase.instance.client.auth.currentUser;
               if (user != null) {
-                await Supabase.instance.client.from('profiles').update({'name': txtCtrl.text.trim()}).eq('id', user.id);
+                await Supabase.instance.client.from('profiles').update({'full_name': txtCtrl.text.trim()}).eq('id', user.id);
                 setState(() => _userName = txtCtrl.text.trim());
               }
               if (ctx.mounted) Navigator.pop(ctx);
@@ -165,7 +165,10 @@ class _AccountTabState extends State<AccountTab> {
           ),
         ),
         const Divider(),
-
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+          child: Text('My Personal Info', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey.shade700)),
+        ),
         ListTile(
           leading: const Icon(Icons.badge, color: Colors.black),
           title: const Text('Change Name', style: TextStyle(fontWeight: FontWeight.w500)),

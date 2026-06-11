@@ -96,14 +96,23 @@ class _TasksTabState extends State<TasksTab> {
               final dateStr = _getDateString(_selectedDay!);
               final myId = Supabase.instance.client.auth.currentUser?.id;
               if (myId != null) {
-                await Supabase.instance.client.from('calendar_notes').insert({
-                  'date_string': dateStr,
-                  'note_text': newNote,
-                  'author_id': myId,
-                });
-                setState(() => _currentNote = newNote);
+                try {
+                  await Supabase.instance.client.from('calendar_notes').insert({
+                    'date_string': dateStr,
+                    'note_text': newNote,
+                    'author_id': myId,
+                  });
+                  setState(() => _currentNote = newNote);
+                  if (ctx.mounted) Navigator.pop(ctx);
+                } catch (e) {
+                  if (ctx.mounted) {
+                    Navigator.pop(ctx);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Failed to save. Did you run the SQL to create the calendar_notes table? Error: $e')),
+                    );
+                  }
+                }
               }
-              if (ctx.mounted) Navigator.pop(ctx);
             },
             child: const Text('Save'),
           ),
@@ -200,9 +209,20 @@ class _TasksTabState extends State<TasksTab> {
                   ),
                   Row(
                     children: [
-                      Tooltip(
-                        message: 'Notes are only stored on our server for 10 days for privacy.',
-                        child: Icon(Icons.info_outline, color: isDark ? Colors.grey.shade400 : Colors.grey.shade600, size: 20),
+                      IconButton(
+                        icon: Icon(Icons.info_outline, color: isDark ? Colors.grey.shade400 : Colors.grey.shade600, size: 20),
+                        onPressed: () {
+                          showDialog(
+                            context: context,
+                            builder: (ctx) => AlertDialog(
+                              title: const Text('Privacy Note'),
+                              content: const Text('Notes are only stored on our server for 10 days for privacy, after which they are automatically deleted.'),
+                              actions: [
+                                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))
+                              ],
+                            ),
+                          );
+                        },
                       ),
                       IconButton(
                         icon: const Icon(Icons.edit, color: Colors.pinkAccent),
