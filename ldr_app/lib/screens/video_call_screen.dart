@@ -275,7 +275,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         }
 
         final Map<String, dynamic> mediaConstraints = {
-          'audio': true,
+          'audio': false,
           'video': true,
         };
         
