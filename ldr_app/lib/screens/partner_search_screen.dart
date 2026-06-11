@@ -16,11 +16,14 @@ class _PartnerSearchScreenState extends State<PartnerSearchScreen> {
   bool _isSearching = false;
   Map<String, dynamic>? _foundUser;
   List<dynamic> _incomingRequests = [];
+  List<dynamic> _connections = [];
+  String _connectionSearchQuery = '';
 
   @override
   void initState() {
     super.initState();
     _fetchIncomingRequests();
+    _fetchConnections();
   }
 
   @override
@@ -67,6 +70,68 @@ class _PartnerSearchScreenState extends State<PartnerSearchScreen> {
       });
     } catch (e) {
       debugPrint('Error fetching requests: $e');
+    }
+  }
+
+  Future<void> _fetchConnections() async {
+    final myId = _supabase.auth.currentUser?.id;
+    if (myId == null) return;
+
+    try {
+      final reqs = await _supabase
+          .from('connection_requests')
+          .select('id, sender_id, receiver_id, status, category')
+          .eq('status', 'accepted')
+          .or('sender_id.eq.$myId,receiver_id.eq.$myId');
+
+      if (reqs.isEmpty) {
+        setState(() => _connections = []);
+        return;
+      }
+
+      final List<String> partnerIds = reqs.map<String>((req) {
+        return (req['sender_id'] == myId ? req['receiver_id'] : req['sender_id']) as String;
+      }).toList();
+
+      final profiles = await _supabase
+          .from('profiles')
+          .select('id, username, full_name')
+          .inFilter('id', partnerIds);
+
+      final combined = reqs.map((req) {
+        final partnerId = req['sender_id'] == myId ? req['receiver_id'] : req['sender_id'];
+        final profile = profiles.firstWhere((p) => p['id'] == partnerId, orElse: () => {'username': 'Unknown', 'full_name': 'Unknown User'});
+        return {
+          ...req,
+          'profiles': profile,
+        };
+      }).toList();
+
+      setState(() => _connections = combined);
+    } catch (e) {
+      debugPrint('Error fetching connections: $e');
+    }
+  }
+
+  Future<void> _disconnect(String connectionId) async {
+    try {
+      await _supabase.from('connection_requests').delete().eq('id', connectionId);
+      
+      // Remove partner_id from profile if necessary
+      final myId = _supabase.auth.currentUser?.id;
+      if (myId != null) {
+        await _supabase.from('profiles').update({'partner_id': null}).eq('id', myId);
+      }
+      
+      _fetchConnections();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Disconnected successfully.')));
+      }
+    } catch (e) {
+      debugPrint('Error disconnecting: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to disconnect.')));
+      }
     }
   }
 
@@ -241,8 +306,17 @@ class _PartnerSearchScreenState extends State<PartnerSearchScreen> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
+    final filteredConnections = _connections.where((conn) {
+      if (_connectionSearchQuery.isEmpty) return true;
+      final prof = conn['profiles'];
+      final name = (prof['full_name'] ?? '').toString().toLowerCase();
+      final username = (prof['username'] ?? '').toString().toLowerCase();
+      final q = _connectionSearchQuery.toLowerCase();
+      return name.contains(q) || username.contains(q);
+    }).toList();
+
     return DefaultTabController(
-      length: 2,
+      length: 3,
       child: Scaffold(
         backgroundColor: isDark ? Colors.black : Colors.white,
         appBar: AppBar(
@@ -257,6 +331,7 @@ class _PartnerSearchScreenState extends State<PartnerSearchScreen> {
             tabs: const [
               Tab(text: 'Search'),
               Tab(text: 'Requests'),
+              Tab(text: 'Connections'),
             ],
           ),
         ),
@@ -367,6 +442,60 @@ class _PartnerSearchScreenState extends State<PartnerSearchScreen> {
                     },
                   ),
                 ),
+
+            // CONNECTIONS TAB
+            Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                children: [
+                  TextField(
+                    onChanged: (val) => setState(() => _connectionSearchQuery = val),
+                    style: TextStyle(color: isDark ? Colors.white : Colors.black),
+                    decoration: InputDecoration(
+                      hintText: 'Search connections...',
+                      hintStyle: TextStyle(color: isDark ? Colors.grey.shade400 : Colors.grey.shade600),
+                      prefixIcon: Icon(Icons.search, color: isDark ? Colors.grey.shade400 : Colors.grey.shade600),
+                      filled: true,
+                      fillColor: isDark ? Colors.grey.shade900 : Colors.grey.shade100,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Expanded(
+                    child: _connections.isEmpty 
+                      ? Center(child: Text("You don't have any connections yet.", style: TextStyle(color: Colors.grey.shade500)))
+                      : ListView.separated(
+                          itemCount: filteredConnections.length,
+                          separatorBuilder: (_, __) => const SizedBox(height: 12),
+                          itemBuilder: (context, index) {
+                            final conn = filteredConnections[index];
+                            final profile = conn['profiles'];
+                            return Container(
+                              decoration: BoxDecoration(
+                                color: isDark ? Colors.grey.shade900 : Colors.white,
+                                border: Border.all(color: isDark ? Colors.grey.shade800 : Colors.grey.shade200),
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: ListTile(
+                                leading: const CircleAvatar(backgroundColor: Colors.pinkAccent, child: Icon(Icons.person, color: Colors.white)),
+                                title: Text(profile['full_name'] ?? profile['username'], style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
+                                subtitle: Text('@${profile['username']} • ${conn['category'] ?? 'Connection'}', style: TextStyle(color: isDark ? Colors.grey.shade400 : Colors.grey.shade600)),
+                                trailing: ElevatedButton(
+                                  onPressed: () => _disconnect(conn['id']),
+                                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade100, foregroundColor: Colors.red.shade900, elevation: 0),
+                                  child: const Text('Disconnect'),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ),

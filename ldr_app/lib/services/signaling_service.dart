@@ -31,7 +31,7 @@ class SignalingService {
     );
 
     await _channel!.subscribe((status, [error]) {
-      if (status == 'SUBSCRIBED') {
+      if (status == RealtimeSubscribeStatus.subscribed) {
         // Announce our presence so the other peer knows to send an offer if they are already here
         sendMessage('peer_joined', {});
       }

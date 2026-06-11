@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:table_calendar/table_calendar.dart';
 
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:intl/intl.dart';
+
 class TasksTab extends StatefulWidget {
   const TasksTab({super.key});
 
@@ -11,11 +14,102 @@ class TasksTab extends StatefulWidget {
 class _TasksTabState extends State<TasksTab> {
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
+  String _currentNote = '';
+  bool _isLoadingNote = false;
 
   @override
   void initState() {
     super.initState();
     _selectedDay = _focusedDay;
+    _fetchNoteForDay(_selectedDay!);
+  }
+
+  String _getDateString(DateTime date) {
+    return DateFormat('yyyy-MM-dd').format(date);
+  }
+
+  Future<void> _fetchNoteForDay(DateTime date) async {
+    setState(() => _isLoadingNote = true);
+    final dateStr = _getDateString(date);
+    final myId = Supabase.instance.client.auth.currentUser?.id;
+    if (myId == null) return;
+
+    try {
+      // Find my active connection to get partner ID
+      final connRes = await Supabase.instance.client
+          .from('connection_requests')
+          .select('sender_id, receiver_id')
+          .eq('status', 'accepted')
+          .or('sender_id.eq.$myId,receiver_id.eq.$myId')
+          .maybeSingle();
+
+      String? partnerId;
+      if (connRes != null) {
+        partnerId = connRes['sender_id'] == myId ? connRes['receiver_id'] : connRes['sender_id'];
+      }
+
+      var query = Supabase.instance.client
+          .from('calendar_notes')
+          .select('note_text')
+          .eq('date_string', dateStr);
+          
+      if (partnerId != null) {
+        query = query.inFilter('author_id', [myId, partnerId]);
+      } else {
+        query = query.eq('author_id', myId);
+      }
+
+      final res = await query.order('created_at', ascending: false).limit(1).maybeSingle();
+      
+      if (mounted) {
+        setState(() {
+          _currentNote = res != null ? res['note_text'] : '';
+          _isLoadingNote = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error fetching note: $e');
+      if (mounted) setState(() => _isLoadingNote = false);
+    }
+  }
+
+  void _editNote() {
+    if (_selectedDay == null) return;
+    final txtCtrl = TextEditingController(text: _currentNote);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Edit Daily Note'),
+        content: TextField(
+          controller: txtCtrl, 
+          maxLines: 5,
+          decoration: const InputDecoration(
+            hintText: 'Write something memorable...',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () async {
+              final newNote = txtCtrl.text.trim();
+              final dateStr = _getDateString(_selectedDay!);
+              final myId = Supabase.instance.client.auth.currentUser?.id;
+              if (myId != null) {
+                await Supabase.instance.client.from('calendar_notes').insert({
+                  'date_string': dateStr,
+                  'note_text': newNote,
+                  'author_id': myId,
+                });
+                setState(() => _currentNote = newNote);
+              }
+              if (ctx.mounted) Navigator.pop(ctx);
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -64,6 +158,7 @@ class _TasksTabState extends State<TasksTab> {
               _selectedDay = selectedDay;
               _focusedDay = focusedDay;
             });
+            _fetchNoteForDay(selectedDay);
           },
           calendarStyle: CalendarStyle(
             selectedDecoration: const BoxDecoration(
@@ -103,12 +198,17 @@ class _TasksTabState extends State<TasksTab> {
                       color: isDark ? Colors.white : Colors.black,
                     ),
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.edit, color: Colors.pinkAccent),
-                    onPressed: () {
-                      // Show add note dialog
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Note editing coming soon!')));
-                    },
+                  Row(
+                    children: [
+                      Tooltip(
+                        message: 'Notes are only stored on our server for 10 days for privacy.',
+                        child: Icon(Icons.info_outline, color: isDark ? Colors.grey.shade400 : Colors.grey.shade600, size: 20),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.edit, color: Colors.pinkAccent),
+                        onPressed: _editNote,
+                      ),
+                    ],
                   )
                 ],
               ),
@@ -119,10 +219,18 @@ class _TasksTabState extends State<TasksTab> {
                   color: isDark ? Colors.grey.shade900 : Colors.grey.shade100,
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Text(
-                  'No notes written for this day yet. Tap the edit icon to write something memorable!',
-                  style: TextStyle(color: isDark ? Colors.grey.shade500 : Colors.grey.shade600, fontStyle: FontStyle.italic),
-                ),
+                child: _isLoadingNote
+                    ? const Center(child: CircularProgressIndicator())
+                    : Text(
+                        _currentNote.isEmpty
+                            ? 'No notes written for this day yet. Tap the edit icon to write something memorable!'
+                            : _currentNote,
+                        style: TextStyle(
+                          color: _currentNote.isEmpty ? (isDark ? Colors.grey.shade500 : Colors.grey.shade600) : (isDark ? Colors.white : Colors.black), 
+                          fontStyle: _currentNote.isEmpty ? FontStyle.italic : FontStyle.normal,
+                          fontSize: 16,
+                        ),
+                      ),
               ),
               const SizedBox(height: 24),
               Text(

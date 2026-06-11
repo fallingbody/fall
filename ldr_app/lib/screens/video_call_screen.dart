@@ -9,6 +9,9 @@ class VideoCallScreen extends StatefulWidget {
   final String participantName;
   final String participantId;
   final bool isVideoCall;
+  final VoidCallback? onEndCall;
+  final bool isMinimized;
+  final VoidCallback? onToggleMinimize;
 
   const VideoCallScreen({
     super.key, 
@@ -16,6 +19,9 @@ class VideoCallScreen extends StatefulWidget {
     required this.participantName,
     required this.participantId,
     this.isVideoCall = true,
+    this.onEndCall,
+    this.isMinimized = false,
+    this.onToggleMinimize,
   });
 
   @override
@@ -349,6 +355,17 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
      setState(() => _isScreenSharing = false);
   }
 
+  void _endCall() {
+    _signaling?.disconnect();
+    if (widget.onEndCall != null) {
+      widget.onEndCall!();
+    } else {
+      if (mounted && Navigator.canPop(context)) {
+        Navigator.pop(context);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isConnecting) {
@@ -358,8 +375,38 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       );
     }
 
+    if (widget.isMinimized) {
+      // Return PiP mode view
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          Container(color: Colors.black),
+          if (!_videoMuted && _hasRemoteTrack)
+            RTCVideoView(_remoteRenderer, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover)
+          else
+            const Center(child: Icon(Icons.call, color: Colors.white, size: 40)),
+          if (!_micMuted)
+             Positioned(top: 8, right: 8, child: Icon(Icons.mic, color: Colors.white, size: 16)),
+        ],
+      );
+    }
+
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Scaffold(
       backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        iconTheme: const IconThemeData(color: Colors.white),
+        elevation: 0,
+        actions: [
+          if (widget.onToggleMinimize != null)
+            IconButton(
+              icon: const Icon(Icons.close_fullscreen, color: Colors.white),
+              onPressed: widget.onToggleMinimize,
+            ),
+        ],
+      ),
       body: Stack(
         children: [
           // Background for Audio Call
