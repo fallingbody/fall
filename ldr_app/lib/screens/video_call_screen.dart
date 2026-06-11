@@ -9,19 +9,21 @@ class VideoCallScreen extends StatefulWidget {
   final String participantName;
   final String participantId;
   final bool isVideoCall;
-  final VoidCallback? onEndCall;
   final bool isMinimized;
+  final bool isCaller;
   final VoidCallback? onToggleMinimize;
+  final VoidCallback? onEndCall;
 
   const VideoCallScreen({
-    super.key, 
-    required this.roomName, 
+    super.key,
+    required this.roomName,
     required this.participantName,
     required this.participantId,
-    this.isVideoCall = true,
-    this.onEndCall,
+    required this.isVideoCall,
     this.isMinimized = false,
+    required this.isCaller,
     this.onToggleMinimize,
+    this.onEndCall,
   });
 
   @override
@@ -46,6 +48,8 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
 
   bool _hasRemoteTrack = false;
   bool _offerCreated = false;
+  bool _isRemoteDescriptionSet = false;
+  final List<Map<String, dynamic>> _remoteCandidates = [];
 
   @override
   void initState() {
@@ -164,34 +168,43 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
 
     switch (type) {
       case 'peer_joined':
-        // The other peer joined, initiate the offer if we haven't already
-        if (!_offerCreated) {
+        // Only the caller initiates the offer to prevent glare
+        if (widget.isCaller && !_offerCreated) {
           _offerCreated = true;
           _createOffer();
         }
         break;
       case 'offer':
-        final pc = await _createPeerConnection();
-        await pc.setRemoteDescription(RTCSessionDescription(data['sdp'], data['type']));
-        final answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-        _signaling!.sendMessage('answer', {
-          'sdp': answer.sdp,
-          'type': answer.type,
-        });
+        if (!widget.isCaller) {
+          final pc = await _createPeerConnection();
+          await pc.setRemoteDescription(RTCSessionDescription(data['sdp'], data['type']));
+          _isRemoteDescriptionSet = true;
+          _processQueuedCandidates();
+          
+          final answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          _signaling!.sendMessage('answer', {
+            'sdp': answer.sdp,
+            'type': answer.type,
+          });
+        }
         break;
       case 'answer':
-        if (_peerConnection != null) {
+        if (widget.isCaller && _peerConnection != null) {
           await _peerConnection!.setRemoteDescription(RTCSessionDescription(data['sdp'], data['type']));
+          _isRemoteDescriptionSet = true;
+          _processQueuedCandidates();
         }
         break;
       case 'ice_candidate':
-        if (_peerConnection != null) {
+        if (_isRemoteDescriptionSet && _peerConnection != null) {
           await _peerConnection!.addCandidate(RTCIceCandidate(
             data['candidate'],
             data['sdpMid'],
             data['sdpMLineIndex'],
           ));
+        } else {
+          _remoteCandidates.add(data);
         }
         break;
       case 'VIDEO_REQUEST':
@@ -205,7 +218,22 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Partner accepted video request!')));
         }
         break;
+      case 'call_ended':
+        _terminateCallLocally();
+        break;
     }
+  }
+
+  Future<void> _processQueuedCandidates() async {
+    if (_peerConnection == null) return;
+    for (var data in _remoteCandidates) {
+      await _peerConnection!.addCandidate(RTCIceCandidate(
+        data['candidate'],
+        data['sdpMid'],
+        data['sdpMLineIndex'],
+      ));
+    }
+    _remoteCandidates.clear();
   }
 
   @override
@@ -363,13 +391,15 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   }
 
   void _endCall() {
-    _signaling?.disconnect();
+    _signaling?.sendMessage('call_ended', {});
+    _terminateCallLocally();
+  }
+
+  void _terminateCallLocally() {
     if (widget.onEndCall != null) {
       widget.onEndCall!();
     } else {
-      if (mounted && Navigator.canPop(context)) {
-        Navigator.pop(context);
-      }
+      if (mounted) Navigator.of(context).pop();
     }
   }
 

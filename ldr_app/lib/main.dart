@@ -11,8 +11,10 @@ import 'screens/calendar_screen.dart';
 import 'screens/memories_screen.dart';
 import 'screens/call_screen.dart';
 import 'screens/achievements_screen.dart';
-import 'screens/games_screen.dart';
-import 'screens/settings_screen.dart';
+import 'screens/tabs/games_tab.dart';
+import 'screens/tabs/settings_tab.dart';
+import 'screens/global_call_overlay.dart';
+import 'services/call_state.dart';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -81,20 +83,16 @@ void _setupGlobalCallKitListener() {
   FlutterCallkitIncoming.onEvent.listen((CallEvent? event) {
     if (event == null) return;
     if (event is CallEventActionCallAccept) {
-      final myId = Supabase.instance.client.auth.currentUser?.id ?? '';
       final roomId = event.id; // Correctly mapped to roomId
       final isVideo = activeCallsVideoStatus[roomId] ?? true;
+      final callerName = event.body['nameCaller'] ?? 'Partner';
       
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (navigatorKey.currentContext != null) {
-          Navigator.push(navigatorKey.currentContext!, MaterialPageRoute(builder: (context) => VideoCallScreen(
-            roomName: roomId,
-            participantName: 'Me',
-            participantId: myId,
-            isVideoCall: isVideo,
-          )));
-        }
-      });
+      globalCallState.value = CallData(
+        roomId: roomId,
+        callerName: callerName,
+        isVideo: isVideo,
+        isCaller: false, // I am accepting, so I am not the caller
+      );
     }
   });
 }
@@ -209,6 +207,14 @@ class LdrApp extends StatelessWidget {
       ),
       themeMode: ThemeMode.system,
       routerConfig: _router,
+      builder: (context, child) {
+        return Stack(
+          children: [
+            if (child != null) child,
+            const GlobalCallOverlay(),
+          ],
+        );
+      },
     );
   }
 }

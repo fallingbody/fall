@@ -4,6 +4,7 @@ import 'tabs/engage_tab.dart';
 import 'tabs/tasks_tab.dart';
 import 'tabs/game_tab.dart';
 import 'tabs/account_tab.dart';
+import '../services/call_state.dart';
 import 'partner_search_screen.dart';
 import '../services/status_service.dart';
 
@@ -35,12 +36,6 @@ class _HomeScreenState extends State<HomeScreen> {
   final Set<String> _processedCalls = {};
   final Set<String> _processedMessages = {};
   bool _hasPendingRequests = false;
-  final Set<String> _shownCallDialogs = {};
-
-  String _activeCallRoomId = '';
-  String _activeCallerName = '';
-  bool _activeCallIsVideo = false;
-  bool _isCallMinimized = false;
 
   @override
   void initState() {
@@ -347,12 +342,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   Navigator.of(context).pop();
                   FlutterCallkitIncoming.endAllCalls();
                   
-                  setState(() {
-                    _activeCallRoomId = roomId;
-                    _activeCallerName = callerName;
-                    _activeCallIsVideo = isVideo;
-                    _isCallMinimized = false;
-                  });
+                  globalCallState.value = CallData(
+                    roomId: roomId,
+                    callerName: callerName,
+                    isVideo: isVideo,
+                    isCaller: false, // User is accepting
+                  );
                 },
                 style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
               child: const Text('Accept', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
@@ -450,42 +445,6 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
       ),
-    ),
-    
-    // PiP Video Call Overlay
-    if (_activeCallRoomId.isNotEmpty)
-      AnimatedPositioned(
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeInOut,
-        right: _isCallMinimized ? 20 : 0,
-        bottom: _isCallMinimized ? 100 : 0,
-        width: _isCallMinimized ? 120 : MediaQuery.of(context).size.width,
-        height: _isCallMinimized ? 160 : MediaQuery.of(context).size.height,
-        child: GestureDetector(
-          onTap: _isCallMinimized ? () => setState(() => _isCallMinimized = false) : null,
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(_isCallMinimized ? 16 : 0),
-            child: Material(
-              elevation: _isCallMinimized ? 8 : 0,
-              color: Colors.black,
-              child: VideoCallScreen(
-                roomName: _activeCallRoomId,
-                participantName: _activeCallerName,
-                participantId: Supabase.instance.client.auth.currentUser?.id ?? '',
-                isVideoCall: _activeCallIsVideo,
-                isMinimized: _isCallMinimized,
-                onToggleMinimize: () => setState(() => _isCallMinimized = !_isCallMinimized),
-                onEndCall: () {
-                  setState(() {
-                    _activeCallRoomId = '';
-                    _isCallMinimized = false;
-                  });
-                },
-              ),
-            ),
-          ),
-        ),
-      ),
-    ]);
+    );
   }
 }
