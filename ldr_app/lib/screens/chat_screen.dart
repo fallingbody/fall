@@ -443,8 +443,8 @@ class _ChatScreenState extends State<ChatScreen> {
                     _replyToMsg(message);
                   },
                 ),
-                // Edit (only my messages + only text)
-                if (isMe && message is types.TextMessage)
+                // Edit (only my messages + only text + within 10 minutes)
+                if (isMe && message is types.TextMessage && (message.createdAt == null || DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(message.createdAt!)).inMinutes <= 10))
                   ListTile(
                     leading: Icon(Icons.edit, color: isDark ? Colors.white70 : Colors.black87),
                     title: Text('Edit', style: TextStyle(color: isDark ? Colors.white : Colors.black)),
@@ -508,19 +508,42 @@ class _ChatScreenState extends State<ChatScreen> {
   void _deleteMessage(types.Message message) async {
     await LocalDbService().deleteMessage(message.id);
 
-    // Send sync to partner
-    await Supabase.instance.client.from('messages').insert({
-      'id': const Uuid().v4(),
-      'author_id': _user.id,
-      'receiver_id': _partner.id,
-      'text': 'DELETE_MESSAGE:${message.id}',
-      'status': 'sent',
-      'created_at': DateTime.now().toUtc().toIso8601String(),
-    });
+    bool isOlderThan10Mins = true;
+    if (message.createdAt != null) {
+      final msgDate = DateTime.fromMillisecondsSinceEpoch(message.createdAt!);
+      if (DateTime.now().difference(msgDate).inMinutes <= 10) {
+        isOlderThan10Mins = false;
+      }
+    }
+
+    if (!isOlderThan10Mins && message.author.id == _user.id) {
+      // Send sync to partner (Delete for everyone)
+      final syncData = {
+        'id': const Uuid().v4(),
+        'author_id': _user.id,
+        'receiver_id': _partner.id,
+        'text': 'DELETE_MESSAGE:${message.id}',
+        'status': 'sent',
+        'created_at': DateTime.now().toUtc().toIso8601String(),
+      };
+      
+      await Supabase.instance.client.from('messages').insert(syncData);
+      
+      // Also broadcast the delete command for 0-latency
+      try {
+        _chatChannel?.sendBroadcastMessage(
+          event: 'chat_payload',
+          payload: { 'message': syncData },
+        );
+      } catch (e) {
+        debugPrint('Broadcast delete failed: $e');
+      }
+    }
+
     _loadLocalMessages();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Message deleted'), duration: Duration(seconds: 1)),
+        SnackBar(content: Text(isOlderThan10Mins || message.author.id != _user.id ? 'Deleted for you' : 'Deleted for everyone'), duration: const Duration(seconds: 1)),
       );
     }
   }
@@ -566,8 +589,7 @@ class _ChatScreenState extends State<ChatScreen> {
       
       // 3. Broadcast for 0-latency
       try {
-        await _chatChannel?.send(
-          type: RealtimeListenTypes.broadcast,
+        _chatChannel?.sendBroadcastMessage(
           event: 'chat_payload',
           payload: { 'message': msgData },
         );
@@ -648,8 +670,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
       // 5. Broadcast for 0-latency
       try {
-        await _chatChannel?.send(
-          type: RealtimeListenTypes.broadcast,
+        _chatChannel?.sendBroadcastMessage(
           event: 'chat_payload',
           payload: { 'message': msgData },
         );
