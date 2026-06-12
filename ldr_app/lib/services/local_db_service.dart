@@ -112,9 +112,28 @@ class LocalDbService {
     }
   }
 
-  /// Optional: Delete a specific message locally
+  /// Optional: Delete a specific message locally (now soft-deletes to prevent sync resurrection)
   Future<void> deleteMessage(String id) async {
-    await _messagesBox.delete(id);
+    try {
+      final message = _messagesBox.get(id);
+      if (message != null) {
+        final updatedMessage = Map<String, dynamic>.from(message.map((key, value) => MapEntry(key.toString(), value)));
+        updatedMessage['text'] = '🚫 This message was deleted';
+        await _messagesBox.put(id, updatedMessage);
+      } else {
+        // If it doesn't exist, just save a placeholder so messageExists() returns true
+        await _messagesBox.put(id, {
+          'id': id,
+          'text': '🚫 This message was deleted',
+          'author_id': 'unknown',
+          'receiver_id': 'unknown',
+          'status': 'seen',
+          'created_at': DateTime.now().toUtc().toIso8601String(),
+        });
+      }
+    } catch (e) {
+      debugPrint('Error soft-deleting message locally: $e');
+    }
   }
 
   /// Optional: Clear entire chat history

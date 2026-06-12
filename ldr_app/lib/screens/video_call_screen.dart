@@ -486,17 +486,17 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
             ),
 
           // Remote Video (Full Screen)
-          if (_hasRemoteTrack)
+          if (_isVideoMode && _hasRemoteTrack)
             Positioned.fill(
               child: RTCVideoView(_remoteRenderer, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain),
             )
-          else if (!_videoMuted)
+          else if (_isVideoMode && !_videoMuted)
             const Center(
               child: Text('Waiting for partner...', style: TextStyle(color: Colors.white, fontSize: 18)),
             ),
 
           // Local Video (PiP)
-          if (_localStream != null && !_videoMuted)
+          if (_isVideoMode && _localStream != null && !_videoMuted)
             Positioned(
               right: 20,
               top: 60,
