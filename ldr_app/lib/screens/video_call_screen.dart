@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
 import '../services/signaling_service.dart';
 
@@ -51,6 +52,9 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   bool _isRemoteDescriptionSet = false;
   final List<Map<String, dynamic>> _remoteCandidates = [];
 
+  Timer? _callDurationTimer;
+  int _callDuration = 0;
+
   @override
   void initState() {
     super.initState();
@@ -58,6 +62,22 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     _videoMuted = !_isVideoMode;
     _speakerOn = _isVideoMode;
     _initWebrtc();
+  }
+
+  void _startCallDurationTimer() {
+    _callDurationTimer ??= Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (mounted) {
+        setState(() {
+          _callDuration++;
+        });
+      }
+    });
+  }
+
+  String get _formattedDuration {
+    final minutes = (_callDuration ~/ 60).toString().padLeft(2, '0');
+    final seconds = (_callDuration % 60).toString().padLeft(2, '0');
+    return '$minutes:$seconds';
   }
 
   Future<void> _initWebrtc() async {
@@ -142,25 +162,27 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     };
 
     _peerConnection!.onAddStream = (stream) {
+      _remoteRenderer.srcObject = stream;
       _remoteStream = stream;
-      if (stream.getVideoTracks().isNotEmpty) {
-        _remoteRenderer.srcObject = _remoteStream;
+      if (mounted) {
+        setState(() {
+          _hasRemoteTrack = true;
+        });
+        _startCallDurationTimer();
       }
-      setState(() {
-        _hasRemoteTrack = true;
-      });
     };
 
     _peerConnection!.onTrack = (event) {
       if (event.streams.isNotEmpty) {
+        _remoteRenderer.srcObject = event.streams[0];
         _remoteStream = event.streams[0];
-        if (event.track.kind == 'video') {
-          _remoteRenderer.srcObject = _remoteStream;
+        if (mounted) {
+          setState(() {
+            _hasRemoteTrack = true;
+          });
+          _startCallDurationTimer();
         }
       }
-      setState(() {
-        _hasRemoteTrack = true;
-      });
     };
 
     if (_localStream != null) {
@@ -262,6 +284,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
 
   @override
   void dispose() {
+    _callDurationTimer?.cancel();
     _localStream?.dispose();
     _remoteStream?.dispose();
     _peerConnection?.close();
@@ -310,8 +333,23 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     try {
       if (nextState) {
         if (WebRTC.platformIsAndroid) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Screen sharing is not supported on Android 14+ without a foreground service plugin.')));
-          return;
+          FlutterForegroundTask.init(
+            androidNotificationOptions: AndroidNotificationOptions(
+              channelId: 'screen_share',
+              channelName: 'Screen Sharing',
+              channelDescription: 'Screen sharing is active.',
+              channelImportance: NotificationChannelImportance.LOW,
+              priority: NotificationPriority.LOW,
+            ),
+            iosNotificationOptions: const IOSNotificationOptions(),
+            foregroundTaskOptions: const ForegroundTaskOptions(
+              interval: 5000,
+              isOnceEvent: false,
+              autoRunOnBoot: false,
+              allowWakeLock: false,
+              allowWifiLock: false,
+            ),
+          );
         }
 
         final Map<String, dynamic> mediaConstraints = {
@@ -319,7 +357,16 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
           'video': true,
         };
         
+        // This prompts the user for permission.
         final screenStream = await navigator.mediaDevices.getDisplayMedia(mediaConstraints);
+        
+        // Once permission is granted and stream is ready, start the service!
+        if (WebRTC.platformIsAndroid) {
+          await FlutterForegroundTask.startService(
+            notificationTitle: 'Screen Sharing Active',
+            notificationText: 'Tap to return to call',
+          );
+        }
         
         // Replace video track
         final oldVideoTrack = _localStream?.getVideoTracks().first;
@@ -383,6 +430,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
      _localRenderer.srcObject = _localStream;
      
      if (WebRTC.platformIsAndroid) {
+        FlutterForegroundTask.stopService();
         await Helper.setAndroidAudioConfiguration(AndroidAudioConfiguration.communication);
      }
      setState(() => _isScreenSharing = false);
@@ -476,7 +524,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      _hasRemoteTrack ? '00:00' : 'Ringing...', 
+                      _hasRemoteTrack ? _formattedDuration : 'Ringing...', 
                       style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 18)
                     ),
                   ],
@@ -622,6 +670,8 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   }
 
   void _showVideoRequestDialog() {
+    if (!mounted) return;
+    debugPrint('Showing video request dialog');
     showDialog(
       context: context,
       barrierDismissible: false,

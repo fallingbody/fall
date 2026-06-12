@@ -52,10 +52,9 @@
             android:exported="false" />
 
         <service
-            android:name="de.julianassmann.flutter_background.IsolateHolderService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="mediaProjection" />
+            android:name="com.pravera.flutter_foreground_task.services.ForegroundService"
+            android:foregroundServiceType="mediaProjection"
+            android:exported="false" />
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and
