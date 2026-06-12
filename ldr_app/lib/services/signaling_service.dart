@@ -37,9 +37,9 @@ class SignalingService {
           return;
         }
 
-        final type = actualPayload['type'] as String?;
+        final type = actualPayload['msg_type'] as String?; // Changed from 'type' because Supabase overwrites it
         if (type == null) {
-          onStatusChange?.call('Missing type');
+          onStatusChange?.call('Missing msg_type');
           return;
         }
         
@@ -80,7 +80,7 @@ class SignalingService {
         event: 'signaling',
         payload: {
           'senderId': localParticipantId,
-          'type': type,
+          'msg_type': type, // Changed from 'type' because Supabase overwrites it
           'data': data,
         },
       );
