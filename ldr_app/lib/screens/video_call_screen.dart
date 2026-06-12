@@ -4,7 +4,6 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:permission_handler/permission_handler.dart';
 
-import '../main.dart';
 import '../services/signaling_service.dart';
 
 class VideoCallScreen extends StatefulWidget {
@@ -58,6 +57,9 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
 
   Timer? _callDurationTimer;
   int _callDuration = 0;
+  
+  bool _incomingVideoRequest = false;
+  bool _wasVideoModeBeforeScreenShare = false;
 
   @override
   void initState() {
@@ -96,6 +98,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
 
     await _getUserMedia();
     await _signaling!.connect();
+    await _startForegroundService();
 
     setState(() {
       _isConnecting = false;
@@ -177,14 +180,28 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     };
 
     _peerConnection!.onTrack = (event) {
-      if (event.streams.isNotEmpty) {
-        _remoteRenderer.srcObject = event.streams[0];
-        _remoteStream = event.streams[0];
+      if (event.track.kind == 'video') {
         if (mounted) {
           setState(() {
+            _remoteRenderer.srcObject = null;
+            if (event.streams.isNotEmpty) {
+              _remoteRenderer.srcObject = event.streams[0];
+              _remoteStream = event.streams[0];
+            }
             _hasRemoteTrack = true;
+            _isVideoMode = true;
           });
-          _startCallDurationTimer();
+        }
+      } else {
+        if (event.streams.isNotEmpty) {
+          _remoteRenderer.srcObject = event.streams[0];
+          _remoteStream = event.streams[0];
+          if (mounted) {
+            setState(() {
+              _hasRemoteTrack = true;
+            });
+            _startCallDurationTimer();
+          }
         }
       }
     };
@@ -260,7 +277,11 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         }
         break;
       case 'VIDEO_REQUEST':
-        _showVideoRequestDialog();
+        if (mounted) {
+          setState(() {
+            _incomingVideoRequest = true;
+          });
+        }
         break;
       case 'VIDEO_ACCEPT':
         if (mounted) {
@@ -314,7 +335,50 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     _localRenderer.dispose();
     _remoteRenderer.dispose();
     _signaling?.disconnect();
+    
+    if (WebRTC.platformIsAndroid) {
+      try {
+        FlutterForegroundTask.stopService();
+      } catch (e) {
+        debugPrint('Error stopping call foreground service: $e');
+      }
+    }
     super.dispose();
+  }
+
+  Future<void> _startForegroundService() async {
+    if (WebRTC.platformIsAndroid) {
+      try {
+        final status = await Permission.notification.request();
+        if (status.isDenied) {
+          debugPrint('Notification permission denied');
+        }
+
+        FlutterForegroundTask.init(
+          androidNotificationOptions: AndroidNotificationOptions(
+            channelId: 'active_call',
+            channelName: 'Active Call',
+            channelDescription: 'VoIP Call is active.',
+            channelImportance: NotificationChannelImportance.LOW,
+            priority: NotificationPriority.LOW,
+          ),
+          iosNotificationOptions: const IOSNotificationOptions(),
+          foregroundTaskOptions: ForegroundTaskOptions(
+            eventAction: ForegroundTaskEventAction.nothing(),
+            autoRunOnBoot: false,
+            allowWakeLock: true,
+            allowWifiLock: true,
+          ),
+        );
+
+        await FlutterForegroundTask.startService(
+          notificationTitle: 'Active Call',
+          notificationText: 'Tap to return to call',
+        );
+      } catch (e) {
+        debugPrint('Error starting call foreground service: $e');
+      }
+    }
   }
 
   void _toggleMic() {
@@ -361,14 +425,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     bool nextState = !_isScreenSharing;
     try {
       if (nextState) {
-        if (WebRTC.platformIsAndroid) {
-          // Request notification permissions first
-          final status = await Permission.notification.request();
-          if (status.isDenied) {
-            debugPrint('Notification permission denied');
-          }
-        }
-
         final Map<String, dynamic> mediaConstraints = {
           'audio': false,
           'video': true,
@@ -376,28 +432,15 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         
         _screenStream = await navigator.mediaDevices.getDisplayMedia(mediaConstraints);
         
-        if (WebRTC.platformIsAndroid) {
-          FlutterForegroundTask.init(
-            androidNotificationOptions: AndroidNotificationOptions(
-              channelId: 'screen_share',
-              channelName: 'Screen Sharing',
-              channelDescription: 'Screen sharing is active.',
-              channelImportance: NotificationChannelImportance.LOW,
-              priority: NotificationPriority.LOW,
-            ),
-            iosNotificationOptions: const IOSNotificationOptions(),
-            foregroundTaskOptions: ForegroundTaskOptions(
-              eventAction: ForegroundTaskEventAction.nothing(),
-              autoRunOnBoot: false,
-              allowWakeLock: false,
-              allowWifiLock: false,
-            ),
-          );
-          
-          await FlutterForegroundTask.startService(
-            notificationTitle: 'Screen Sharing Active',
-            notificationText: 'Tap to return to call',
-          );
+        _wasVideoModeBeforeScreenShare = _isVideoMode && !_videoMuted;
+        
+        // Stop and release camera video track to release camera and LED
+        final cameraTrack = _localStream?.getVideoTracks().isNotEmpty == true 
+            ? _localStream!.getVideoTracks().first 
+            : null;
+        if (cameraTrack != null) {
+          cameraTrack.stop();
+          _localStream!.removeTrack(cameraTrack);
         }
         
         // Replace video track or add it
@@ -456,33 +499,42 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   void _stopScreenShare() async {
      final senders = await _peerConnection!.getSenders();
      
-     // Properly stop screen sharing tracks
+     // Stop screen sharing tracks
      _screenStream?.getTracks().forEach((track) => track.stop());
      _screenStream = null;
 
-     final cameraVideoTrack = _localStream?.getVideoTracks().isNotEmpty == true ? _localStream!.getVideoTracks().first : null;
-     
-     for (var sender in senders) {
-       if (sender.track?.kind == 'video') {
-         if (cameraVideoTrack != null) {
-           await sender.replaceTrack(cameraVideoTrack);
-         } else {
-           // We had no camera track (audio-only call). Remove track and renegotiate.
+     if (_wasVideoModeBeforeScreenShare) {
+       // Re-acquire camera
+       final Map<String, dynamic> mediaConstraints = {
+         'audio': false,
+         'video': {'facingMode': 'user'},
+       };
+       try {
+         final videoStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
+         final cameraVideoTrack = videoStream.getVideoTracks().first;
+         
+         _localStream?.addTrack(cameraVideoTrack);
+         _localRenderer.srcObject = _localStream;
+         
+         for (var sender in senders) {
+           if (sender.track?.kind == 'video') {
+             await sender.replaceTrack(cameraVideoTrack);
+             break;
+           }
+         }
+       } catch (e) {
+         debugPrint('Failed to restart camera after screen share: $e');
+       }
+     } else {
+       // We were in audio call. Remove video sender and renegotiate.
+       for (var sender in senders) {
+         if (sender.track?.kind == 'video') {
            await _peerConnection!.removeTrack(sender);
            _createOffer();
+           break;
          }
-         break;
        }
-     }
-     
-     _localRenderer.srcObject = _localStream;
-     
-     if (WebRTC.platformIsAndroid) {
-        try {
-          await FlutterForegroundTask.stopService();
-        } catch (e) {
-          debugPrint('Error stopping foreground service: $e');
-        }
+       _localRenderer.srcObject = _localStream;
      }
      
      _signaling?.sendMessage('SCREEN_SHARE_STOP', {});
@@ -490,9 +542,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
      if (mounted) {
        setState(() {
          _isScreenSharing = false;
-         if (cameraVideoTrack == null) {
-           _isVideoMode = false;
-         }
+         _isVideoMode = _wasVideoModeBeforeScreenShare;
        });
      }
   }
@@ -667,7 +717,79 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
               ],
             ),
           ),
+          if (_incomingVideoRequest)
+            _buildVideoRequestDialogOverlay(),
         ],
+      ),
+    );
+  }
+
+  Widget _buildVideoRequestDialogOverlay() {
+    return Positioned.fill(
+      child: Container(
+        color: Colors.black54,
+        child: Center(
+          child: Container(
+            margin: const EdgeInsets.all(32),
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade900,
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: Colors.white24, width: 1),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.videocam, color: Colors.pinkAccent, size: 48),
+                const SizedBox(height: 16),
+                const Text(
+                  'Video Request',
+                  style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '${widget.participantName} wants to turn on their camera.',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white70, fontSize: 16),
+                ),
+                const SizedBox(height: 24),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.redAccent,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          _incomingVideoRequest = false;
+                        });
+                      },
+                      child: const Text('Deny'),
+                    ),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      onPressed: () async {
+                        setState(() {
+                          _incomingVideoRequest = false;
+                        });
+                        await _upgradeToVideoCall(isInitiator: false);
+                        _signaling?.sendMessage('VIDEO_ACCEPT', {});
+                      },
+                      child: const Text('Accept'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -738,37 +860,5 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     }
   }
 
-  void _showVideoRequestDialog() {
-    final navContext = navigatorKey.currentContext;
-    if (navContext == null) {
-      debugPrint('Navigator context is null, cannot show video request dialog');
-      return;
-    }
-    debugPrint('Showing video request dialog');
-    showDialog(
-      context: navContext,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Text('Video Request'),
-        content: Text('${widget.participantName} wants to turn on their camera.'),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-            },
-            child: const Text('Deny', style: TextStyle(color: Colors.red)),
-          ),
-          TextButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              // Set up local video first, then send accept to trigger offer
-              await _upgradeToVideoCall(isInitiator: false);
-              _signaling?.sendMessage('VIDEO_ACCEPT', {});
-            },
-            child: const Text('Accept', style: TextStyle(color: Colors.green)),
-          ),
-        ],
-      ),
-    );
-  }
+
 }
