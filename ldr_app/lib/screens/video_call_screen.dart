@@ -39,9 +39,11 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   RTCPeerConnection? _peerConnection;
   MediaStream? _localStream;
   MediaStream? _remoteStream;
+  MediaStream? _screenStream;
   SignalingService? _signaling;
 
   bool _isConnecting = true;
+  bool _isRequestingVideo = false;
   bool _micMuted = false;
   late bool _videoMuted;
   late bool _speakerOn;
@@ -102,9 +104,9 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   Future<void> _getUserMedia() async {
     final Map<String, dynamic> mediaConstraints = {
       'audio': true,
-      'video': {
+      'video': _isVideoMode ? {
         'facingMode': 'user',
-      }
+      } : false,
     };
 
     try {
@@ -115,7 +117,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       if (_localStream!.getAudioTracks().isNotEmpty) {
         _localStream!.getAudioTracks()[0].enabled = !_micMuted;
       }
-      if (_localStream!.getVideoTracks().isNotEmpty) {
+      if (_isVideoMode && _localStream!.getVideoTracks().isNotEmpty) {
         _localStream!.getVideoTracks()[0].enabled = !_videoMuted;
       }
 
@@ -263,7 +265,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Partner accepted video request!')));
         }
-        _upgradeToVideoCall();
+        _upgradeToVideoCall(isInitiator: true);
         break;
       case 'call_ended':
         _terminateCallLocally();
@@ -286,6 +288,8 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   @override
   void dispose() {
     _callDurationTimer?.cancel();
+    _screenStream?.getTracks().forEach((track) => track.stop());
+    _screenStream?.dispose();
     _localStream?.dispose();
     _remoteStream?.dispose();
     _peerConnection?.close();
@@ -307,10 +311,17 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   void _toggleVideo() async {
     // If in audio mode and trying to turn on video
     if (!_isVideoMode) {
+      if (_isRequestingVideo) return;
+      _isRequestingVideo = true;
       _signaling?.sendMessage('VIDEO_REQUEST', {});
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sent video request to partner...')));
       }
+      
+      // Reset the throttle after some time in case partner ignores
+      Future.delayed(const Duration(seconds: 5), () {
+        if (mounted) setState(() => _isRequestingVideo = false);
+      });
       return;
     }
 
@@ -350,6 +361,12 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
               allowWifiLock: false,
             ),
           );
+          
+          // Must start the service before getDisplayMedia to avoid SecurityException
+          await FlutterForegroundTask.startService(
+            notificationTitle: 'Screen Sharing Active',
+            notificationText: 'Tap to return to call',
+          );
         }
 
         final Map<String, dynamic> mediaConstraints = {
@@ -357,20 +374,19 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
           'video': true,
         };
         
-        // This prompts the user for permission.
-        final screenStream = await navigator.mediaDevices.getDisplayMedia(mediaConstraints);
-        
-        // Once permission is granted and stream is ready, start the service!
-        if (WebRTC.platformIsAndroid) {
-          await FlutterForegroundTask.startService(
-            notificationTitle: 'Screen Sharing Active',
-            notificationText: 'Tap to return to call',
-          );
+        try {
+          _screenStream = await navigator.mediaDevices.getDisplayMedia(mediaConstraints);
+        } catch (e) {
+          // If permission is denied, stop the service
+          if (WebRTC.platformIsAndroid) {
+            FlutterForegroundTask.stopService();
+          }
+          return;
         }
         
         // Replace video track
-        final oldVideoTrack = _localStream?.getVideoTracks().first;
-        final newVideoTrack = screenStream.getVideoTracks().first;
+        final oldVideoTrack = _localStream?.getVideoTracks().isNotEmpty == true ? _localStream!.getVideoTracks().first : null;
+        final newVideoTrack = _screenStream!.getVideoTracks().first;
         
         if (oldVideoTrack != null) {
           final senders = await _peerConnection!.getSenders();
@@ -382,22 +398,11 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
           }
         }
         
-        _localRenderer.srcObject = screenStream;
+        _localRenderer.srcObject = _screenStream;
         
         newVideoTrack.onEnded = () {
            _stopScreenShare();
         };
-
-        if (WebRTC.platformIsAndroid) {
-          await Helper.setAndroidAudioConfiguration(
-            AndroidAudioConfiguration(
-              manageAudioFocus: false,
-              androidAudioMode: AndroidAudioMode.normal,
-              androidAudioAttributesUsageType: AndroidAudioAttributesUsageType.media,
-              androidAudioStreamType: AndroidAudioStreamType.music,
-            ),
-          );
-        }
       } else {
         _stopScreenShare();
       }
@@ -416,7 +421,12 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
 
   void _stopScreenShare() async {
      final senders = await _peerConnection!.getSenders();
-     final cameraVideoTrack = _localStream?.getVideoTracks().first;
+     
+     // Properly stop screen sharing tracks
+     _screenStream?.getTracks().forEach((track) => track.stop());
+     _screenStream = null;
+
+     final cameraVideoTrack = _localStream?.getVideoTracks().isNotEmpty == true ? _localStream!.getVideoTracks().first : null;
      
      if (cameraVideoTrack != null) {
         for (var sender in senders) {
@@ -431,9 +441,10 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
      
      if (WebRTC.platformIsAndroid) {
         FlutterForegroundTask.stopService();
-        await Helper.setAndroidAudioConfiguration(AndroidAudioConfiguration.communication);
      }
-     setState(() => _isScreenSharing = false);
+     if (mounted) {
+       setState(() => _isScreenSharing = false);
+     }
   }
 
   void _endCall() {
@@ -623,7 +634,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     );
   }
 
-  Future<void> _upgradeToVideoCall() async {
+  Future<void> _upgradeToVideoCall({required bool isInitiator}) async {
     final Map<String, dynamic> mediaConstraints = {
       'audio': false, // Audio is already running
       'video': {'facingMode': 'user'},
@@ -656,16 +667,24 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         }
       }
 
-      setState(() {
-        _isVideoMode = true;
-        _videoMuted = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isVideoMode = true;
+          _videoMuted = false;
+          _isRequestingVideo = false;
+        });
+      }
 
-      if (widget.isCaller) {
+      // Only the initiator generates the offer after both parties have enabled their cameras
+      if (isInitiator) {
         _createOffer();
       }
     } catch (e) {
       debugPrint('Failed to upgrade to video: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to access camera: $e')));
+        setState(() => _isRequestingVideo = false);
+      }
     }
   }
 
@@ -686,10 +705,11 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
             child: const Text('Deny', style: TextStyle(color: Colors.red)),
           ),
           TextButton(
-            onPressed: () {
+            onPressed: () async {
               Navigator.pop(context);
+              // Set up local video first, then send accept to trigger offer
+              await _upgradeToVideoCall(isInitiator: false);
               _signaling?.sendMessage('VIDEO_ACCEPT', {});
-              _upgradeToVideoCall();
             },
             child: const Text('Accept', style: TextStyle(color: Colors.green)),
           ),
