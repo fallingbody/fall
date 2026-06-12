@@ -53,7 +53,7 @@
 
         <service
             android:name="com.pravera.flutter_foreground_task.services.ForegroundService"
-            android:foregroundServiceType="mediaProjection"
+            android:foregroundServiceType="microphone"
             android:exported="false" />
     </application>
     <!-- Required to query activities that can process text, see:
