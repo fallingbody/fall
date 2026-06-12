@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
-import 'package:flutter_background/flutter_background.dart';
+
 import '../services/signaling_service.dart';
 
 class VideoCallScreen extends StatefulWidget {
@@ -71,9 +71,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     _signaling!.onMessage = _handleSignalingMessage;
 
     await _getUserMedia();
-    await _signaling!.connect(onStatusChange: (status) {
-      _showDebugToast('SigStatus: $status');
-    });
+    await _signaling!.connect();
 
     setState(() {
       _isConnecting = false;
@@ -321,30 +319,11 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     setState(() => _speakerOn = nextState);
   }
 
-  Future<bool> _ensureForegroundService() async {
-    if (WebRTC.platformIsAndroid) {
-      const config = FlutterBackgroundAndroidConfig(
-        notificationTitle: 'Screen Sharing',
-        notificationText: 'Your screen is currently being shared.',
-        notificationImportance: AndroidNotificationImportance.normal,
-        notificationIcon: AndroidResource(name: 'ic_launcher', defType: 'mipmap'),
-      );
-      await FlutterBackground.initialize(androidConfig: config);
-      return await FlutterBackground.enableBackgroundExecution();
-    }
-    return true;
-  }
-
   void _toggleScreenShare() async {
     if (_peerConnection == null) return;
     bool nextState = !_isScreenSharing;
     try {
       if (nextState) {
-        final bgSuccess = await _ensureForegroundService();
-        if (!bgSuccess) {
-          throw Exception('Failed to start foreground service. Please grant permissions.');
-        }
-
         final Map<String, dynamic> mediaConstraints = {
           'audio': false,
           'video': true,
@@ -433,21 +412,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     }
   }
 
-  List<String> _debugLogs = [];
 
-  void _showDebugToast(String msg) {
-    if (mounted) {
-      setState(() {
-        _debugLogs.insert(0, '${DateTime.now().toIso8601String().split('T')[1].substring(0, 8)} - $msg');
-        if (_debugLogs.length > 8) _debugLogs.removeLast();
-      });
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(msg),
-        duration: const Duration(seconds: 2),
-        backgroundColor: Colors.blueAccent,
-      ));
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -600,22 +565,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
               ],
             ),
           ),
-          
-          // Debug Overlay
-          if (_debugLogs.isNotEmpty)
-            Positioned(
-              top: 50,
-              left: 10,
-              right: 10,
-              child: Container(
-                padding: const EdgeInsets.all(8),
-                color: Colors.black54,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: _debugLogs.map((log) => Text(log, style: const TextStyle(color: Colors.greenAccent, fontSize: 12))).toList(),
-                ),
-              ),
-            ),
         ],
       ),
     );
