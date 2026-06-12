@@ -21,7 +21,7 @@ class SignalingService {
     _channel!.onBroadcast(
       event: 'signaling',
       callback: (payload) {
-        onStatusChange?.call('Received raw broadcast');
+        onStatusChange?.call('Raw: ${payload.toString()}');
         
         final Map<String, dynamic> actualPayload = payload.containsKey('payload') 
             ? payload['payload'] as Map<String, dynamic> 

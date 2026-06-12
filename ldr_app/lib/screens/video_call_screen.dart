@@ -234,12 +234,10 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         _showVideoRequestDialog();
         break;
       case 'VIDEO_ACCEPT':
-        setState(() {
-          _isVideoMode = true;
-        });
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Partner accepted video request!')));
         }
+        _upgradeToVideoCall();
         break;
       case 'call_ended':
         _terminateCallLocally();
@@ -281,22 +279,11 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
 
   void _toggleVideo() async {
     // If in audio mode and trying to turn on video
-    if (!_isVideoMode && _videoMuted) {
-      if (_localStream != null && _localStream!.getVideoTracks().isNotEmpty) {
-        _localStream!.getVideoTracks()[0].enabled = true;
-      }
-      
-      await Helper.setSpeakerphoneOn(true);
-
+    if (!_isVideoMode) {
       _signaling?.sendMessage('VIDEO_REQUEST', {});
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sent video request to partner...')));
       }
-
-      setState(() {
-        _videoMuted = false;
-        _speakerOn = true;
-      });
       return;
     }
 
@@ -453,34 +440,36 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         children: [
           // Background for Audio Call
           if (!_isVideoMode)
-            Positioned.fill(
-              child: Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [Colors.pink.shade900, Colors.black],
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                  ),
+            Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Colors.pink.shade800, Colors.pink.shade300],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
                 ),
+              ),
+              child: Center(
                 child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     CircleAvatar(
                       radius: 60,
-                      backgroundColor: Colors.pinkAccent.withOpacity(0.3),
-                      child: CircleAvatar(
-                        radius: 50,
-                        backgroundColor: Colors.pink,
-                        child: Text(
-                          widget.participantName[0].toUpperCase(),
-                          style: const TextStyle(fontSize: 40, color: Colors.white, fontWeight: FontWeight.bold),
-                        ),
+                      backgroundColor: Colors.white,
+                      child: Text(
+                        widget.participantName.isNotEmpty ? widget.participantName[0].toUpperCase() : 'P', 
+                        style: TextStyle(fontSize: 50, color: Colors.pink.shade800, fontWeight: FontWeight.bold)
                       ),
                     ),
                     const SizedBox(height: 24),
-                    Text('Audio Call with ${widget.participantName}', style: const TextStyle(color: Colors.white, fontSize: 20)),
+                    Text(
+                      widget.participantName, 
+                      style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)
+                    ),
                     const SizedBox(height: 8),
-                    Text(_hasRemoteTrack ? 'Connected' : 'Connecting...', style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 16)),
+                    Text(
+                      _hasRemoteTrack ? '00:00' : 'Ringing...', 
+                      style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 18)
+                    ),
                   ],
                 ),
               ),
@@ -576,6 +565,46 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     );
   }
 
+  Future<void> _upgradeToVideoCall() async {
+    final Map<String, dynamic> mediaConstraints = {
+      'audio': false, // Audio is already running
+      'video': {'facingMode': 'user'},
+    };
+    try {
+      final videoStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
+      final videoTrack = videoStream.getVideoTracks().first;
+
+      _localStream?.addTrack(videoTrack);
+      _localRenderer.srcObject = _localStream;
+
+      if (_peerConnection != null) {
+        final senders = await _peerConnection!.getSenders();
+        bool replaced = false;
+        for (var sender in senders) {
+          if (sender.track?.kind == 'video') {
+            await sender.replaceTrack(videoTrack);
+            replaced = true;
+            break;
+          }
+        }
+        if (!replaced) {
+          await _peerConnection!.addTrack(videoTrack, _localStream!);
+        }
+      }
+
+      setState(() {
+        _isVideoMode = true;
+        _videoMuted = false;
+      });
+
+      if (widget.isCaller) {
+        _createOffer();
+      }
+    } catch (e) {
+      debugPrint('Failed to upgrade to video: $e');
+    }
+  }
+
   void _showVideoRequestDialog() {
     showDialog(
       context: context,
@@ -594,9 +623,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
             onPressed: () {
               Navigator.pop(context);
               _signaling?.sendMessage('VIDEO_ACCEPT', {});
-              setState(() {
-                _isVideoMode = true;
-              });
+              _upgradeToVideoCall();
             },
             child: const Text('Accept', style: TextStyle(color: Colors.green)),
           ),
