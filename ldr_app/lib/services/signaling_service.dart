@@ -21,17 +21,30 @@ class SignalingService {
     _channel!.onBroadcast(
       event: 'signaling',
       callback: (payload) {
+        onStatusChange?.call('Received raw broadcast');
+        
         final Map<String, dynamic> actualPayload = payload.containsKey('payload') 
             ? payload['payload'] as Map<String, dynamic> 
             : payload;
 
         final senderId = actualPayload['senderId'] as String?;
-        if (senderId == null || senderId == localParticipantId) return; // Ignore our own messages
+        if (senderId == null) {
+          onStatusChange?.call('Missing senderId');
+          return;
+        }
+        if (senderId == localParticipantId) {
+          onStatusChange?.call('Ignored own message');
+          return;
+        }
 
         final type = actualPayload['type'] as String?;
-        if (type == null) return;
+        if (type == null) {
+          onStatusChange?.call('Missing type');
+          return;
+        }
         
         final data = actualPayload['data'] as Map<String, dynamic>? ?? {};
+        onStatusChange?.call('Parsed: $type');
 
         onMessage?.call(type, data, senderId);
       },
@@ -40,11 +53,11 @@ class SignalingService {
     await _channel!.subscribe((status, [error]) {
       if (status == RealtimeSubscribeStatus.subscribed) {
         onStatusChange?.call('Subscribed OK');
-        sendMessage('peer_joined', {});
+        _sendMessageInternal('peer_joined', {}, onStatusChange);
         
         // Aggressively ping until the other side responds
         pingTimer = Timer.periodic(const Duration(seconds: 2), (timer) {
-          sendMessage('peer_joined', {});
+          _sendMessageInternal('peer_joined', {}, onStatusChange);
         });
       } else {
         onStatusChange?.call('Sub Failed: $status ${error ?? ""}');
@@ -53,7 +66,14 @@ class SignalingService {
   }
 
   void sendMessage(String type, Map<String, dynamic> data) {
-    if (_channel == null) return;
+    _sendMessageInternal(type, data, null);
+  }
+
+  void _sendMessageInternal(String type, Map<String, dynamic> data, void Function(String)? onStatusChange) {
+    if (_channel == null) {
+      onStatusChange?.call('Send fail: Channel null');
+      return;
+    }
     
     try {
       _channel!.sendBroadcastMessage(
@@ -64,7 +84,9 @@ class SignalingService {
           'data': data,
         },
       );
+      onStatusChange?.call('Sent $type');
     } catch (e) {
+      onStatusChange?.call('Send Exception: $e');
       print('Signaling broadcast failed: $e');
     }
   }
