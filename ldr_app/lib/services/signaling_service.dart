@@ -21,11 +21,17 @@ class SignalingService {
     _channel!.onBroadcast(
       event: 'signaling',
       callback: (payload) {
-        final senderId = payload['senderId'] as String;
-        if (senderId == localParticipantId) return; // Ignore our own messages
+        final Map<String, dynamic> actualPayload = payload.containsKey('payload') 
+            ? payload['payload'] as Map<String, dynamic> 
+            : payload;
 
-        final type = payload['type'] as String;
-        final data = payload['data'] as Map<String, dynamic>? ?? {};
+        final senderId = actualPayload['senderId'] as String?;
+        if (senderId == null || senderId == localParticipantId) return; // Ignore our own messages
+
+        final type = actualPayload['type'] as String?;
+        if (type == null) return;
+        
+        final data = actualPayload['data'] as Map<String, dynamic>? ?? {};
 
         onMessage?.call(type, data, senderId);
       },

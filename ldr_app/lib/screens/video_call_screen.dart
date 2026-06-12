@@ -72,6 +72,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
 
     await _getUserMedia();
     await _signaling!.connect();
+    _showDebugToast('Subscribed to Channel');
 
     setState(() {
       _isConnecting = false;
@@ -115,15 +116,15 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
 
     final configuration = {
       'iceServers': [
-        {'urls': 'stun:stun.l.google.com:19302'},
-        {'urls': 'stun:stun1.l.google.com:19302'},
+        {'url': 'stun:stun.l.google.com:19302'},
+        {'url': 'stun:stun1.l.google.com:19302'},
         {
-          'urls': 'turn:openrelay.metered.ca:80',
+          'url': 'turn:openrelay.metered.ca:80',
           'username': 'openrelayproject',
           'credential': 'openrelayproject'
         },
         {
-          'urls': 'turn:openrelay.metered.ca:443',
+          'url': 'turn:openrelay.metered.ca:443',
           'username': 'openrelayproject',
           'credential': 'openrelayproject'
         },
@@ -133,6 +134,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     _peerConnection = await createPeerConnection(configuration);
 
     _peerConnection!.onIceCandidate = (candidate) {
+      if (candidate.candidate == null) return;
       _signaling!.sendMessage('ice_candidate', {
         'candidate': candidate.candidate,
         'sdpMid': candidate.sdpMid,
@@ -171,6 +173,16 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     return _peerConnection!;
   }
 
+  void _showDebugToast(String msg) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(msg),
+        duration: const Duration(seconds: 2),
+        backgroundColor: Colors.blueAccent,
+      ));
+    }
+  }
+
   Future<void> _createOffer() async {
     final pc = await _createPeerConnection();
     final offer = await pc.createOffer();
@@ -180,6 +192,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       'sdp': offer.sdp,
       'type': offer.type,
     });
+    _showDebugToast('Sent Offer');
   }
 
   void _handleSignalingMessage(String type, Map<String, dynamic> data, String senderId) async {
@@ -188,6 +201,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
 
     switch (type) {
       case 'peer_joined':
+        _showDebugToast('Peer Joined');
         // Only the caller initiates the offer to prevent glare
         if (widget.isCaller && !_offerCreated) {
           _offerCreated = true;
@@ -195,6 +209,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         }
         break;
       case 'offer':
+        _showDebugToast('Received Offer');
         if (!widget.isCaller) {
           final pc = await _createPeerConnection();
           await pc.setRemoteDescription(RTCSessionDescription(data['sdp'], data['type']));
@@ -207,9 +222,11 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
             'sdp': answer.sdp,
             'type': answer.type,
           });
+          _showDebugToast('Sent Answer');
         }
         break;
       case 'answer':
+        _showDebugToast('Received Answer');
         if (widget.isCaller && _peerConnection != null) {
           await _peerConnection!.setRemoteDescription(RTCSessionDescription(data['sdp'], data['type']));
           _isRemoteDescriptionSet = true;
@@ -555,7 +572,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
                   color: Colors.red,
                   size: 64,
                   iconSize: 32,
-                  onPressed: () => Navigator.pop(context),
+                  onPressed: _endCall,
                 ),
                 _buildControlButton(
                   icon: _videoMuted ? Icons.videocam_off : Icons.videocam,
