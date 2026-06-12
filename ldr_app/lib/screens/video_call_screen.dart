@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
@@ -342,9 +343,8 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
               priority: NotificationPriority.LOW,
             ),
             iosNotificationOptions: const IOSNotificationOptions(),
-            foregroundTaskOptions: const ForegroundTaskOptions(
-              interval: 5000,
-              isOnceEvent: false,
+            foregroundTaskOptions: ForegroundTaskOptions(
+              eventAction: ForegroundTaskEventAction.nothing(),
               autoRunOnBoot: false,
               allowWakeLock: false,
               allowWifiLock: false,
