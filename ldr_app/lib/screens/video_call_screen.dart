@@ -176,7 +176,10 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
 
   Future<void> _createOffer() async {
     final pc = await _createPeerConnection();
-    final offer = await pc.createOffer();
+    final offer = await pc.createOffer({
+      'offerToReceiveAudio': 1,
+      'offerToReceiveVideo': 1,
+    });
     await pc.setLocalDescription(offer);
     
     _signaling!.sendMessage('offer', {
@@ -306,6 +309,11 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     bool nextState = !_isScreenSharing;
     try {
       if (nextState) {
+        if (WebRTC.platformIsAndroid) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Screen sharing is not supported on Android 14+ without a foreground service plugin.')));
+          return;
+        }
+
         final Map<String, dynamic> mediaConstraints = {
           'audio': false,
           'video': true,
@@ -440,9 +448,10 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         children: [
           // Background for Audio Call
           if (!_isVideoMode)
-            Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
+            Positioned.fill(
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
                   colors: [Colors.pink.shade800, Colors.pink.shade300],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
@@ -473,6 +482,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
                   ],
                 ),
               ),
+            ),
             ),
 
           // Remote Video (Full Screen)
@@ -588,7 +598,13 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
           }
         }
         if (!replaced) {
-          await _peerConnection!.addTrack(videoTrack, _localStream!);
+          await _peerConnection!.addTransceiver(
+            track: videoTrack,
+            init: RTCRtpTransceiverInit(
+              direction: TransceiverDirection.SendRecv,
+              streams: [_localStream!],
+            ),
+          );
         }
       }
 
