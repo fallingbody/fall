@@ -71,8 +71,9 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     _signaling!.onMessage = _handleSignalingMessage;
 
     await _getUserMedia();
-    await _signaling!.connect();
-    _showDebugToast('Subscribed to Channel');
+    await _signaling!.connect(onStatusChange: (status) {
+      _showDebugToast('SigStatus: $status');
+    });
 
     setState(() {
       _isConnecting = false;
@@ -173,15 +174,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     return _peerConnection!;
   }
 
-  void _showDebugToast(String msg) {
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(msg),
-        duration: const Duration(seconds: 2),
-        backgroundColor: Colors.blueAccent,
-      ));
-    }
-  }
+
 
   Future<void> _createOffer() async {
     final pc = await _createPeerConnection();
@@ -440,6 +433,22 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     }
   }
 
+  List<String> _debugLogs = [];
+
+  void _showDebugToast(String msg) {
+    if (mounted) {
+      setState(() {
+        _debugLogs.insert(0, '${DateTime.now().toIso8601String().split('T')[1].substring(0, 8)} - $msg');
+        if (_debugLogs.length > 8) _debugLogs.removeLast();
+      });
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(msg),
+        duration: const Duration(seconds: 2),
+        backgroundColor: Colors.blueAccent,
+      ));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isConnecting) {
@@ -591,6 +600,22 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
               ],
             ),
           ),
+          
+          // Debug Overlay
+          if (_debugLogs.isNotEmpty)
+            Positioned(
+              top: 50,
+              left: 10,
+              right: 10,
+              child: Container(
+                padding: const EdgeInsets.all(8),
+                color: Colors.black54,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: _debugLogs.map((log) => Text(log, style: const TextStyle(color: Colors.greenAccent, fontSize: 12))).toList(),
+                ),
+              ),
+            ),
         ],
       ),
     );

@@ -15,7 +15,7 @@ class SignalingService {
 
   SignalingService({required this.roomName, required this.localParticipantId});
 
-  Future<void> connect() async {
+  Future<void> connect({void Function(String)? onStatusChange}) async {
     _channel = _supabase.channel('call:$roomName');
     
     _channel!.onBroadcast(
@@ -39,12 +39,15 @@ class SignalingService {
 
     await _channel!.subscribe((status, [error]) {
       if (status == RealtimeSubscribeStatus.subscribed) {
+        onStatusChange?.call('Subscribed OK');
         sendMessage('peer_joined', {});
         
         // Aggressively ping until the other side responds
         pingTimer = Timer.periodic(const Duration(seconds: 2), (timer) {
           sendMessage('peer_joined', {});
         });
+      } else {
+        onStatusChange?.call('Sub Failed: $status ${error ?? ""}');
       }
     });
   }
