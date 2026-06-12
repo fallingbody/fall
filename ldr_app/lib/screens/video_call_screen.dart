@@ -183,7 +183,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       'sdp': offer.sdp,
       'type': offer.type,
     });
-    _showDebugToast('Sent Offer');
   }
 
   void _handleSignalingMessage(String type, Map<String, dynamic> data, String senderId) async {
@@ -192,7 +191,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
 
     switch (type) {
       case 'peer_joined':
-        _showDebugToast('Peer Joined');
         // Only the caller initiates the offer to prevent glare
         if (widget.isCaller && !_offerCreated) {
           _offerCreated = true;
@@ -200,7 +198,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         }
         break;
       case 'offer':
-        _showDebugToast('Received Offer');
         if (!widget.isCaller) {
           final pc = await _createPeerConnection();
           await pc.setRemoteDescription(RTCSessionDescription(data['sdp'], data['type']));
@@ -213,11 +210,9 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
             'sdp': answer.sdp,
             'type': answer.type,
           });
-          _showDebugToast('Sent Answer');
         }
         break;
       case 'answer':
-        _showDebugToast('Received Answer');
         if (widget.isCaller && _peerConnection != null) {
           await _peerConnection!.setRemoteDescription(RTCSessionDescription(data['sdp'], data['type']));
           _isRemoteDescriptionSet = true;
@@ -394,7 +389,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
      
      if (WebRTC.platformIsAndroid) {
         await Helper.setAndroidAudioConfiguration(AndroidAudioConfiguration.communication);
-        await FlutterBackground.disableBackgroundExecution();
      }
      setState(() => _isScreenSharing = false);
   }
