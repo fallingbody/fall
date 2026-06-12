@@ -46,14 +46,18 @@ class SignalingService {
   void sendMessage(String type, Map<String, dynamic> data) {
     if (_channel == null) return;
     
-    _channel!.sendBroadcastMessage(
-      event: 'signaling',
-      payload: {
-        'senderId': localParticipantId,
-        'type': type,
-        'data': data,
-      },
-    );
+    try {
+      _channel!.sendBroadcastMessage(
+        event: 'signaling',
+        payload: {
+          'senderId': localParticipantId,
+          'type': type,
+          'data': data,
+        },
+      );
+    } catch (e) {
+      print('Signaling broadcast failed: $e');
+    }
   }
 
   void disconnect() {

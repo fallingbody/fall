@@ -75,6 +75,23 @@ class _ChatScreenState extends State<ChatScreen> {
       }
     }).onBroadcast(event: 'chat_payload', callback: (payload) async {
       final msgData = payload['message'] as Map<String, dynamic>;
+      final String text = msgData['text'].toString();
+
+      if (text.startsWith('DELETE_MESSAGE:')) {
+        await LocalDbService().deleteMessage(text.substring(15));
+        _loadLocalMessages();
+        return;
+      }
+      
+      if (text.startsWith('EDIT_MESSAGE:')) {
+        final parts = text.substring(13).split('|:');
+        if (parts.length == 2) {
+          await LocalDbService().editMessageText(parts[0], parts[1]);
+          _loadLocalMessages();
+        }
+        return;
+      }
+
       msgData['status'] = 'delivered';
       await LocalDbService().saveMessage(msgData);
       
@@ -507,8 +524,6 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _deleteMessage(types.Message message) async {
-    await LocalDbService().deleteMessage(message.id);
-
     bool isOlderThan10Mins = true;
     if (message.createdAt != null) {
       final msgDate = DateTime.fromMillisecondsSinceEpoch(message.createdAt!);
@@ -517,36 +532,63 @@ class _ChatScreenState extends State<ChatScreen> {
       }
     }
 
-    if (!isOlderThan10Mins && message.author.id == _user.id) {
-      // Send sync to partner (Delete for everyone)
-      final syncData = {
-        'id': const Uuid().v4(),
-        'author_id': _user.id,
-        'receiver_id': _partner.id,
-        'text': 'DELETE_MESSAGE:${message.id}',
-        'status': 'sent',
-        'created_at': DateTime.now().toUtc().toIso8601String(),
-      };
-      
-      await Supabase.instance.client.from('messages').insert(syncData);
-      
-      // Also broadcast the delete command for 0-latency
-      try {
-        _chatChannel?.sendBroadcastMessage(
-          event: 'chat_payload',
-          payload: { 'message': syncData },
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: isDark ? Colors.grey.shade900 : Colors.white,
+          title: Text('Delete Message', style: TextStyle(color: isDark ? Colors.white : Colors.black)),
+          content: Text('Do you want to delete this message?', style: TextStyle(color: isDark ? Colors.white70 : Colors.black87)),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () async {
+                Navigator.pop(ctx);
+                await LocalDbService().deleteMessage(message.id);
+                _loadLocalMessages();
+              },
+              child: const Text('Delete for me', style: TextStyle(color: Colors.red)),
+            ),
+            if (!isOlderThan10Mins && message.author.id == _user.id)
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                onPressed: () async {
+                  Navigator.pop(ctx);
+                  await LocalDbService().deleteMessage(message.id);
+                  _loadLocalMessages();
+                  
+                  // Send sync to partner (Delete for everyone)
+                  final syncData = {
+                    'id': const Uuid().v4(),
+                    'author_id': _user.id,
+                    'receiver_id': _partner.id,
+                    'text': 'DELETE_MESSAGE:${message.id}',
+                    'status': 'sent',
+                    'created_at': DateTime.now().toUtc().toIso8601String(),
+                  };
+                  
+                  await Supabase.instance.client.from('messages').insert(syncData);
+                  
+                  try {
+                    _chatChannel?.sendBroadcastMessage(
+                      event: 'chat_payload',
+                      payload: { 'message': syncData },
+                    );
+                  } catch (e) {
+                    debugPrint('Broadcast delete failed: $e');
+                  }
+                },
+                child: const Text('Delete for everyone', style: TextStyle(color: Colors.white)),
+              ),
+          ],
         );
-      } catch (e) {
-        debugPrint('Broadcast delete failed: $e');
       }
-    }
-
-    _loadLocalMessages();
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(isOlderThan10Mins || message.author.id != _user.id ? 'Deleted for you' : 'Deleted for everyone'), duration: const Duration(seconds: 1)),
-      );
-    }
+    );
   }
 
   void _handleAttachmentPressed() async {

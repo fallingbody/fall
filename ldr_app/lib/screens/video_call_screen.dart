@@ -101,6 +101,12 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       await Helper.setSpeakerphoneOn(_speakerOn);
     } catch (e) {
       debugPrint('Failed to get user media: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Could not access camera/mic: $e'),
+          backgroundColor: Colors.redAccent,
+        ));
+      }
     }
   }
 
@@ -111,6 +117,16 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       'iceServers': [
         {'urls': 'stun:stun.l.google.com:19302'},
         {'urls': 'stun:stun1.l.google.com:19302'},
+        {
+          'urls': 'turn:openrelay.metered.ca:80',
+          'username': 'openrelayproject',
+          'credential': 'openrelayproject'
+        },
+        {
+          'urls': 'turn:openrelay.metered.ca:443',
+          'username': 'openrelayproject',
+          'credential': 'openrelayproject'
+        },
       ]
     };
 
@@ -126,20 +142,24 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
 
     _peerConnection!.onAddStream = (stream) {
       _remoteStream = stream;
-      _remoteRenderer.srcObject = _remoteStream;
+      if (stream.getVideoTracks().isNotEmpty) {
+        _remoteRenderer.srcObject = _remoteStream;
+      }
       setState(() {
-        _hasRemoteTrack = stream.getVideoTracks().isNotEmpty && stream.getVideoTracks().first.enabled;
+        _hasRemoteTrack = true;
       });
     };
 
     _peerConnection!.onTrack = (event) {
-      if (event.track.kind == 'video') {
+      if (event.streams.isNotEmpty) {
         _remoteStream = event.streams[0];
-        _remoteRenderer.srcObject = _remoteStream;
-        setState(() {
-          _hasRemoteTrack = true;
-        });
+        if (event.track.kind == 'video') {
+          _remoteRenderer.srcObject = _remoteStream;
+        }
       }
+      setState(() {
+        _hasRemoteTrack = true;
+      });
     };
 
     if (_localStream != null) {
@@ -447,7 +467,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       body: Stack(
         children: [
           // Background for Audio Call
-          if (!_isVideoMode && !_hasRemoteTrack)
+          if (!_isVideoMode)
             Positioned.fill(
               child: Container(
                 decoration: BoxDecoration(
@@ -475,7 +495,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
                     const SizedBox(height: 24),
                     Text('Audio Call with ${widget.participantName}', style: const TextStyle(color: Colors.white, fontSize: 20)),
                     const SizedBox(height: 8),
-                    Text(_remoteStream != null ? 'Connected' : 'Connecting...', style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 16)),
+                    Text(_hasRemoteTrack ? 'Connected' : 'Connecting...', style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 16)),
                   ],
                 ),
               ),
