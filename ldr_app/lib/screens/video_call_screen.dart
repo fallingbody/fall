@@ -447,9 +447,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         
         _wasVideoModeBeforeScreenShare = _isVideoMode && !_videoMuted;
         
-        // Get the new screen share track
-        final newVideoTrack = _screenStream!.getVideoTracks().first;
-        
         final newVideoTrack = _screenStream!.getVideoTracks().first;
         
         final senders = await _peerConnection!.getSenders();
