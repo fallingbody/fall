@@ -458,7 +458,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
           }
         }
         
-        await _peerConnection!.addTrack(newVideoTrack, _localStream!);
+        await _peerConnection!.addTrack(newVideoTrack, _screenStream!);
         
         if (mounted) {
           setState(() {
@@ -474,7 +474,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
           cameraTrack.stop();
           _localStream!.removeTrack(cameraTrack);
         }
-        _localStream!.addTrack(newVideoTrack);
         
         // Show screen share locally to verify capture is working
         _localRenderer.srcObject = _screenStream;
@@ -525,8 +524,8 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
          _createOffer();
          
          final screenTrack = _screenStream?.getVideoTracks().isNotEmpty == true ? _screenStream!.getVideoTracks().first : null;
-         if (screenTrack != null && _localStream != null) {
-           _localStream!.removeTrack(screenTrack);
+         if (screenTrack != null) {
+           screenTrack.stop();
          }
          
          _localStream?.addTrack(cameraVideoTrack);
