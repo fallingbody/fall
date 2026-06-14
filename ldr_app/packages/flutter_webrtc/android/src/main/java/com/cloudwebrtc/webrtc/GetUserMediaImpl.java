@@ -488,7 +488,7 @@ public class GetUserMediaImpl {
                     new ResultReceiver(new Handler(Looper.getMainLooper())) {
                         @Override
                         protected void onReceiveResult(int requestCode, Bundle resultData) {
-                            Intent mediaProjectionData = resultData.getParcelable(PROJECTION_DATA);
+                            final Intent mediaProjectionData = resultData.getParcelable(PROJECTION_DATA);
                             int resultCode = resultData.getInt(GRANT_RESULTS);
 
                             if (resultCode != Activity.RESULT_OK) {
@@ -499,9 +499,17 @@ public class GetUserMediaImpl {
                             if (android.os.Build.VERSION.SDK_INT >= 34) { // Android 14+
                                 Intent serviceIntent = new Intent(applicationContext, ScreenCaptureForegroundService.class);
                                 applicationContext.startForegroundService(serviceIntent);
+                                
+                                // Delay capture start to ensure the foreground service is active
+                                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        getDisplayMedia(result, mediaStream, mediaProjectionData);
+                                    }
+                                }, 500);
+                            } else {
+                                getDisplayMedia(result, mediaStream, mediaProjectionData);
                             }
-                            
-                            getDisplayMedia(result, mediaStream, mediaProjectionData);
                         }
                     });
         } else {
