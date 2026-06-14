@@ -447,16 +447,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         
         _wasVideoModeBeforeScreenShare = _isVideoMode && !_videoMuted;
         
-        // Stop and release camera video track to release camera and LED
-        final cameraTrack = _localStream?.getVideoTracks().isNotEmpty == true 
-            ? _localStream!.getVideoTracks().first 
-            : null;
-        if (cameraTrack != null) {
-          cameraTrack.stop();
-          _localStream!.removeTrack(cameraTrack);
-        }
-        
-        // Replace video track or add it
+        // Get the new screen share track
         final newVideoTrack = _screenStream!.getVideoTracks().first;
         
         bool replaced = false;
@@ -484,6 +475,18 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
           }
           _createOffer();
         }
+
+        // Stop and release camera video track to release camera and LED AFTER replacing
+        final cameraTrack = _localStream?.getVideoTracks().isNotEmpty == true 
+            ? _localStream!.getVideoTracks().first 
+            : null;
+        if (cameraTrack != null) {
+          _localStream!.removeTrack(cameraTrack);
+          cameraTrack.stop();
+        }
+        
+        // Add screen share track to local stream
+        _localStream?.addTrack(newVideoTrack);
         
         _localRenderer.srcObject = null;
         
@@ -512,10 +515,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   void _stopScreenShare() async {
      final senders = await _peerConnection!.getSenders();
      
-     // Stop screen sharing tracks
-     _screenStream?.getTracks().forEach((track) => track.stop());
-     _screenStream = null;
-
      if (_wasVideoModeBeforeScreenShare) {
        // Re-acquire camera
        final Map<String, dynamic> mediaConstraints = {
@@ -526,15 +525,20 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
          final videoStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
          final cameraVideoTrack = videoStream.getVideoTracks().first;
          
-         _localStream?.addTrack(cameraVideoTrack);
-         _localRenderer.srcObject = _localStream;
-         
          for (var sender in senders) {
            if (sender.track?.kind == 'video') {
              await sender.replaceTrack(cameraVideoTrack);
              break;
            }
          }
+         
+         final screenTrack = _screenStream?.getVideoTracks().isNotEmpty == true ? _screenStream!.getVideoTracks().first : null;
+         if (screenTrack != null && _localStream != null) {
+           _localStream!.removeTrack(screenTrack);
+         }
+         
+         _localStream?.addTrack(cameraVideoTrack);
+         _localRenderer.srcObject = _localStream;
        } catch (e) {
          debugPrint('Failed to restart camera after screen share: $e');
        }
@@ -547,8 +551,18 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
            break;
          }
        }
+       
+       final screenTrack = _screenStream?.getVideoTracks().isNotEmpty == true ? _screenStream!.getVideoTracks().first : null;
+       if (screenTrack != null && _localStream != null) {
+         _localStream!.removeTrack(screenTrack);
+       }
+       
        _localRenderer.srcObject = _localStream;
      }
+     
+     // Stop screen sharing tracks after replacing
+     _screenStream?.getTracks().forEach((track) => track.stop());
+     _screenStream = null;
      
      _signaling?.sendMessage('SCREEN_SHARE_STOP', {});
      

@@ -156,7 +156,7 @@ public class GetUserMediaImpl {
                         if (resultCode == Activity.RESULT_OK) {
                             mediaProjectionData = resultData.getParcelable(PROJECTION_DATA);
                             result.success(true);
-                        } else {
+                        } 
                             result.success(false);
                         }
                     }
@@ -184,7 +184,7 @@ public class GetUserMediaImpl {
                 Log.w(
                         TAG,
                         "Can't run requestStart() due to a low API level. API level 21 or higher is required.");
-            } else {
+            } 
                 MediaProjectionManager mediaProjectionManager =
                         (MediaProjectionManager) activity.getSystemService(Context.MEDIA_PROJECTION_SERVICE);
 
@@ -281,7 +281,7 @@ public class GetUserMediaImpl {
                     if (videoCapturer != null) {
                         Log.d(TAG, "create user specified camera " + name + " succeeded");
                         return new Pair<>(name, videoCapturer);
-                    } else {
+                    } 
                         Log.d(TAG, "create user specified camera " + name + " failed");
                         break; // fallback to facing mode
                     }
@@ -298,7 +298,7 @@ public class GetUserMediaImpl {
                     Log.d(TAG, "Create " + facingStr + " camera " + name + " succeeded");
 
                     return new Pair<>(name, videoCapturer);
-                } else {
+                } 
                     Log.e(TAG, "Create " + facingStr + " camera " + name + " failed");
                 }
             }
@@ -360,7 +360,7 @@ public class GetUserMediaImpl {
         String deviceId = null;
         if (constraints.getType("audio") == ObjectType.Boolean) {
             addDefaultAudioConstraints(audioConstraints);
-        } else {
+        } 
             audioConstraints = MediaConstraintsUtils.parseMediaConstraints(constraints.getMap("audio"));
             deviceId = getSourceIdConstraint(constraints.getMap("audio"));
         }
@@ -498,10 +498,8 @@ public class GetUserMediaImpl {
                             
                             // Start foreground service for Android 14 MediaProjection
                             Intent serviceIntent = new Intent(applicationContext, ScreenCaptureForegroundService.class);
-                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                            if (android.os.Build.VERSION.SDK_INT >= 34) { // Android 14+
                                 applicationContext.startForegroundService(serviceIntent);
-                            } else {
-                                applicationContext.startService(serviceIntent);
                             }
                             
                             getDisplayMedia(result, mediaStream, mediaProjectionData);
@@ -648,7 +646,7 @@ public class GetUserMediaImpl {
             }
             if (trackParam.getString("kind").equals("audio")) {
                 audioTracks.pushMap(trackParam);
-            } else {
+            } 
                 videoTracks.pushMap(trackParam);
             }
         }
@@ -726,7 +724,7 @@ public class GetUserMediaImpl {
         if (Camera2Enumerator.isSupported(applicationContext)) {
             Log.d(TAG, "Creating video capturer using Camera2 API.");
             cameraEnumerator = new Camera2Enumerator(applicationContext);
-        } else {
+        } 
             Log.d(TAG, "Creating video capturer using Camera1 API.");
             cameraEnumerator = new Camera1Enumerator(false);
         }
@@ -973,7 +971,7 @@ public class GetUserMediaImpl {
             mVideoCapturers.remove(id);
             Log.d(TAG, "removeVideoCapturer: promoted " + newPrimaryId
                     + " to primary capturer (was " + id + ")");
-        } else {
+        } 
             // No shared tracks - stop and dispose the capturer normally.
             try {
                 info.capturer.stopCapture();
@@ -1011,7 +1009,7 @@ public class GetUserMediaImpl {
 
                         if (grantResult == PackageManager.PERMISSION_GRANTED) {
                             grantedPermissions.add(permission);
-                        } else {
+                        } 
                             deniedPermissions.add(permission);
                         }
                     }
@@ -1059,7 +1057,7 @@ public class GetUserMediaImpl {
         if (Camera2Enumerator.isSupported(applicationContext)) {
             Log.d(TAG, "Creating video capturer using Camera2 API.");
             cameraEnumerator = new Camera2Enumerator(applicationContext);
-        } else {
+        } 
             Log.d(TAG, "Creating video capturer using Camera1 API.");
             cameraEnumerator = new Camera1Enumerator(false);
         }
