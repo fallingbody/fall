@@ -450,29 +450,20 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         // Get the new screen share track
         final newVideoTrack = _screenStream!.getVideoTracks().first;
         
+        final newVideoTrack = _screenStream!.getVideoTracks().first;
+        
         final senders = await _peerConnection!.getSenders();
         for (var sender in senders) {
           if (sender.track?.kind == 'video') {
-            await _peerConnection!.removeTrack(sender);
+            await sender.replaceTrack(newVideoTrack);
             break;
           }
         }
-        
-        await _peerConnection!.addTrack(newVideoTrack, _screenStream!);
         
         if (mounted) {
           setState(() {
             _isVideoMode = true;
           });
-        }
-        _createOffer();
-
-        final cameraTrack = _localStream?.getVideoTracks().isNotEmpty == true 
-            ? _localStream!.getVideoTracks().first 
-            : null;
-        if (cameraTrack != null) {
-          cameraTrack.stop();
-          _localStream!.removeTrack(cameraTrack);
         }
         
         // Show screen share locally to verify capture is working
@@ -510,26 +501,23 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
          'video': {'facingMode': 'user'},
        };
        try {
-         final videoStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
-         final cameraVideoTrack = videoStream.getVideoTracks().first;
+         final cameraVideoTrack = _localStream!.getVideoTracks().first;
          
+         final senders = await _peerConnection!.getSenders();
          for (var sender in senders) {
             if (sender.track?.kind == 'video') {
-              await _peerConnection!.removeTrack(sender);
+              await sender.replaceTrack(cameraVideoTrack);
               break;
             }
           }
-         
-         await _peerConnection!.addTrack(cameraVideoTrack, _localStream!);
-         _createOffer();
          
          final screenTrack = _screenStream?.getVideoTracks().isNotEmpty == true ? _screenStream!.getVideoTracks().first : null;
          if (screenTrack != null) {
            screenTrack.stop();
          }
          
-         _localStream?.addTrack(cameraVideoTrack);
          _localRenderer.srcObject = _localStream;
+         _screenStream = null;
        } catch (e) {
          debugPrint('Failed to restart camera after screen share: $e');
        }
