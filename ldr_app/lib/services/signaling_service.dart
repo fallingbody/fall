@@ -50,9 +50,26 @@ class SignalingService {
       },
     );
 
-    await _channel!.subscribe((status, [error]) {
+    _channel!.onPresenceLeave((payload) {
+      onStatusChange?.call('Presence leave: ${payload.toString()}');
+      final leftPresences = payload.leftPresences;
+      for (var presence in leftPresences) {
+        final id = presence.payload['participantId'];
+        if (id != null && id != localParticipantId) {
+          onMessage?.call('peer_left', {}, id as String);
+        }
+      }
+    });
+
+    await _channel!.subscribe((status, [error]) async {
       if (status == RealtimeSubscribeStatus.subscribed) {
         onStatusChange?.call('Subscribed OK');
+        
+        await _channel!.track({
+          'participantId': localParticipantId,
+          'status': 'online',
+        });
+        
         _sendMessageInternal('peer_joined', {}, onStatusChange);
         
         // Aggressively ping until the other side responds

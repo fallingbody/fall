@@ -184,12 +184,21 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         if (mounted) {
           setState(() {
             _remoteRenderer.srcObject = null;
-            if (event.streams.isNotEmpty) {
-              _remoteRenderer.srcObject = event.streams[0];
-              _remoteStream = event.streams[0];
+          });
+          Future.delayed(const Duration(milliseconds: 50), () {
+            if (mounted) {
+              setState(() {
+                if (event.streams.isNotEmpty) {
+                  _remoteRenderer.srcObject = event.streams[0];
+                  _remoteStream = event.streams[0];
+                } else if (_remoteStream != null) {
+                  _remoteStream!.addTrack(event.track);
+                  _remoteRenderer.srcObject = _remoteStream;
+                }
+                _hasRemoteTrack = true;
+                _isVideoMode = true;
+              });
             }
-            _hasRemoteTrack = true;
-            _isVideoMode = true;
           });
         }
       } else {
@@ -202,6 +211,9 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
             });
             _startCallDurationTimer();
           }
+        } else if (_remoteStream != null) {
+          _remoteStream!.addTrack(event.track);
+          _remoteRenderer.srcObject = _remoteStream;
         }
       }
     };
@@ -306,6 +318,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         }
         break;
       case 'call_ended':
+      case 'peer_left':
         _terminateCallLocally();
         break;
     }
@@ -877,13 +890,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
           }
         }
         if (!replaced) {
-          await _peerConnection!.addTransceiver(
-            track: videoTrack,
-            init: RTCRtpTransceiverInit(
-              direction: TransceiverDirection.SendRecv,
-              streams: [_localStream!],
-            ),
-          );
+          await _peerConnection!.addTrack(videoTrack, _localStream!);
         }
       }
 

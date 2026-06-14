@@ -49,7 +49,7 @@
             android:name="com.google.firebase.messaging.default_notification_icon"
             android:resource="@drawable/ic_stat_heart" />
 
-        <service android:name="com.webrtc.webrtc.MediaProjectionService"
+        <service android:name="com.cloudwebrtc.webrtc.ScreenCaptureService"
             android:foregroundServiceType="mediaProjection"
             android:exported="false" />
 
