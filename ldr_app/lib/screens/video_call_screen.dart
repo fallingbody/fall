@@ -189,9 +189,22 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
             if (mounted) {
               setState(() {
                 if (event.streams.isNotEmpty) {
-                  _remoteRenderer.srcObject = event.streams[0];
-                  _remoteStream = event.streams[0];
+                  final newStream = event.streams[0];
+                  final tracks = newStream.getVideoTracks().toList();
+                  for (var t in tracks) {
+                    if (t.id != event.track.id) {
+                      newStream.removeTrack(t);
+                    }
+                  }
+                  _remoteRenderer.srcObject = newStream;
+                  _remoteStream = newStream;
                 } else if (_remoteStream != null) {
+                  final tracks = _remoteStream!.getVideoTracks().toList();
+                  for (var t in tracks) {
+                    if (t.id != event.track.id) {
+                      _remoteStream!.removeTrack(t);
+                    }
+                  }
                   _remoteStream!.addTrack(event.track);
                   _remoteRenderer.srcObject = _remoteStream;
                 }
@@ -452,16 +465,19 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         final senders = await _peerConnection!.getSenders();
         for (var sender in senders) {
           if (sender.track?.kind == 'video') {
-            await sender.replaceTrack(newVideoTrack);
+            await _peerConnection!.removeTrack(sender);
             break;
           }
         }
+        
+        await _peerConnection!.addTrack(newVideoTrack, _screenStream!);
         
         if (mounted) {
           setState(() {
             _isVideoMode = true;
           });
         }
+        _createOffer();
         
         // Show screen share locally to verify capture is working
         _localRenderer.srcObject = _screenStream;
@@ -503,10 +519,13 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
          final senders = await _peerConnection!.getSenders();
          for (var sender in senders) {
             if (sender.track?.kind == 'video') {
-              await sender.replaceTrack(cameraVideoTrack);
+              await _peerConnection!.removeTrack(sender);
               break;
             }
           }
+         
+         await _peerConnection!.addTrack(cameraVideoTrack, _localStream!);
+         _createOffer();
          
          final screenTrack = _screenStream?.getVideoTracks().isNotEmpty == true ? _screenStream!.getVideoTracks().first : null;
          if (screenTrack != null) {
