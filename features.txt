@@ -34,8 +34,5 @@ Partners other apps usage and how much time they are using at what time
 If partners place got any
  alerts then the person also will get that alerts through this app
 
-Have to ask at first page what kind of relationship they are using our app(partners
-only 1 request connection (parents and friends))
-
 If the other person just opened the app screen and 
 slept or something it will not show seen after sometime

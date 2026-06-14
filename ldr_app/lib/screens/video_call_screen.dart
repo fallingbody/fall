@@ -472,7 +472,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
           _createOffer();
         }
         
-        _localRenderer.srcObject = _screenStream;
+        _localRenderer.srcObject = null;
         
         // Notify partner that screen share has started
         _signaling?.sendMessage('SCREEN_SHARE_START', {});
@@ -665,7 +665,55 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
                 borderRadius: BorderRadius.circular(12),
                 child: Container(
                   color: Colors.grey.shade900,
-                  child: RTCVideoView(_localRenderer, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover, mirror: !_isScreenSharing),
+                  child: _isScreenSharing
+                      ? const Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.screen_share, color: Colors.greenAccent, size: 24),
+                              SizedBox(height: 8),
+                              Text(
+                                'Sharing...',
+                                style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                              ),
+                            ],
+                          ),
+                        )
+                      : RTCVideoView(_localRenderer, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover, mirror: !_isScreenSharing),
+                ),
+              ),
+            ),
+
+          // Screen Sharing Status Banner
+          if (_isScreenSharing)
+            Positioned(
+              top: 10,
+              left: 20,
+              right: 20,
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+                decoration: BoxDecoration(
+                  color: Colors.black87,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.greenAccent, width: 1.5),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.greenAccent.withValues(alpha: 0.3),
+                      blurRadius: 8,
+                      spreadRadius: 1,
+                    ),
+                  ],
+                ),
+                child: const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.screen_share, color: Colors.greenAccent, size: 20),
+                    SizedBox(width: 8),
+                    Text(
+                      'You are sharing your screen',
+                      style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+                    ),
+                  ],
                 ),
               ),
             ),
