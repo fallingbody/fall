@@ -450,39 +450,31 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         // Get the new screen share track
         final newVideoTrack = _screenStream!.getVideoTracks().first;
         
-        bool replaced = false;
         final senders = await _peerConnection!.getSenders();
         for (var sender in senders) {
           if (sender.track?.kind == 'video') {
-            await sender.replaceTrack(newVideoTrack);
-            replaced = true;
+            await _peerConnection!.removeTrack(sender);
             break;
           }
         }
         
-        if (!replaced) {
-          await _peerConnection!.addTransceiver(
-            track: newVideoTrack,
-            init: RTCRtpTransceiverInit(
-              direction: TransceiverDirection.SendOnly,
-              streams: [_localStream!],
-            ),
-          );
-          if (mounted) {
-            setState(() {
-              _isVideoMode = true;
-            });
-          }
-          _createOffer();
+        await _peerConnection!.addTrack(newVideoTrack, _localStream!);
+        
+        if (mounted) {
+          setState(() {
+            _isVideoMode = true;
+          });
         }
+        _createOffer();
 
-        // Just disable the camera track instead of stopping it to prevent transceiver death
         final cameraTrack = _localStream?.getVideoTracks().isNotEmpty == true 
             ? _localStream!.getVideoTracks().first 
             : null;
         if (cameraTrack != null) {
-          cameraTrack.enabled = false;
+          cameraTrack.stop();
+          _localStream!.removeTrack(cameraTrack);
         }
+        _localStream!.addTrack(newVideoTrack);
         
         // Show screen share locally to verify capture is working
         _localRenderer.srcObject = _screenStream;
@@ -524,10 +516,13 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
          
          for (var sender in senders) {
             if (sender.track?.kind == 'video') {
-              await sender.replaceTrack(cameraVideoTrack);
+              await _peerConnection!.removeTrack(sender);
               break;
             }
           }
+         
+         await _peerConnection!.addTrack(cameraVideoTrack, _localStream!);
+         _createOffer();
          
          final screenTrack = _screenStream?.getVideoTracks().isNotEmpty == true ? _screenStream!.getVideoTracks().first : null;
          if (screenTrack != null && _localStream != null) {
