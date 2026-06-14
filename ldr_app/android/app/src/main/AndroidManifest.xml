@@ -49,13 +49,9 @@
             android:name="com.google.firebase.messaging.default_notification_icon"
             android:resource="@drawable/ic_stat_heart" />
 
-        <service android:name="com.cloudwebrtc.webrtc.ScreenCaptureService"
-            android:foregroundServiceType="mediaProjection"
-            android:exported="false" />
-
         <service
             android:name="com.pravera.flutter_foreground_task.services.ForegroundService"
-            android:foregroundServiceType="microphone"
+            android:foregroundServiceType="microphone|mediaProjection"
             android:exported="false" />
     </application>
     <!-- Required to query activities that can process text, see:
